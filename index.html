@@ -48,6 +48,35 @@
             }
         }
     </script>
+<style>
+        /* 样式部分 */
+        .video-container {
+            position: relative;
+            padding: 10px; /* 视频之间的间距 */
+            box-sizing: border-box; /* 确保 padding 不影响宽度 */
+        }
+
+        .videoMerge {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        .video-title {
+            text-align: center;
+            margin-top: 10px;
+            font-size: 16px;
+        }
+
+        .row {
+            display: flex;
+            flex-wrap: wrap; /* 自动换行适配小屏幕 */
+            justify-content: center; /* 水平居中对齐 */
+            align-items: center; /* 垂直居中对齐 */
+            margin: 0;
+            padding: 0;
+        }
+    </style>
 </head>
 
 <body>
@@ -128,36 +157,16 @@ Recently, 3D Gaussian Splatting (3DGS) has attracted attention for its superior 
         </div>
 
 	
-	<!--<div class="row">
-            <div class="col-md-8 col-md-offset-2">
-                <video class="video" width="100%" id="teaser" loop playsinline autoplay muted src="assets/Ignatius.mp4" onplay="resizeAndPlay(this)" style="height: 360px;"></video>
-		<canvas height=360 class="videoMerge" id="teaserMerge"></canvas>
-            </div>
-	    <div class="col-md-8 col-md-offset-2">
-                <p class="text-center">
-                Ignatius. <br> 
-                </p>
-	    </div>
-		
-	    <div class="col-md-8 col-md-offset-2">
-                <video class="video" width="100%" id="teaser2" loop playsinline autoplay muted src="assets/Barn_pages.mp4" onplay="resizeAndPlay(this)" style="height: 360px;"></video>
-		<canvas height=360 class="videoMerge" id="teaser2Merge"></canvas>
-            </div>
-	    <div class="col-md-8 col-md-offset-2">
-                <p class="text-center">
-                Barn. <br> 
-                </p>
-	    </div>
-        </div>-->
+
 	    
 <div class="row">
-     <div class="col-md-8 col-md-offset-2 text-center">
+     <div class="col-md-6 col-sm-12 video-container">
         <video class="video" width="100%" id="teaser" loop playsinline autoplay muted src="assets/Ignatius.mp4" onplay="resizeAndPlay(this)" style="height: 240px;"></video>
 		<canvas height=240 class="videoMerge" id="teaserMerge"></canvas>
         <p style="text-align: center;">Ignatius</p>
     </div>
 
-     <div class="col-md-8 col-md-offset-2 text-center">
+     <div class="col-md-6 col-sm-12 video-container">
         <video class="video" width="100%" id="teaser2" loop playsinline autoplay muted src="assets/Barn_pages.mp4" onplay="resizeAndPlay(this)" style="height: 240px;"></video>
 		<canvas height=240 class="videoMerge" id="teaser2Merge"></canvas>
         <p style="text-align: center;">Barn</p>
