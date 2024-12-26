@@ -46,7 +46,7 @@ optimizer:
   reset_opacity_densify_delay: 2
   percent_dense: 0.0001
   densify_grad_threshold: 0.2
-  curvature_clamp_threshold: -5.0
+  curvature_clamp_threshold: -2.0
   lambda_dist: 10.0
 
 model_path: > 
