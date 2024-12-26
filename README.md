@@ -12,13 +12,13 @@ This repo contains the official implementation for the paper “Quadratic Gaussi
 Following [2DGS](https://github.com/hbb1/2d-gaussian-splatting), we also provide a [Python demo](./quadratic_demo.py) that demonstrates the differentiable rasterization process for quadratic surfaces:
 <div style="display: flex; gap: 10px;">
   <figure style="margin: 0;">
-    <img src="assets/QGS_demo_convex.gif" alt="Image 1" width="320">
+    <img src="assets/QGS_demo_convex.gif" alt="Image 1" width="280">
   </figure>
   <figure style="margin: 0;">
-    <img src="assets/QGS_demo_saddle1.gif" alt="Image 2" width="320">
+    <img src="assets/QGS_demo_saddle1.gif" alt="Image 2" width="280">
   </figure>
   <figure style="margin: 0;">
-    <img src="assets/QGS_demo_saddle2.gif" alt="Image 3" width="320">
+    <img src="assets/QGS_demo_saddle2.gif" alt="Image 3" width="280">
   </figure>
 </div>
 
