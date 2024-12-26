@@ -1,6 +1,6 @@
 # Quadratic Gaussian Splatting for Efficient and Detailed Surface Reconstruction
 
-[Project page](https://quadraticgs.github.io/QGS/) | [Paper](https://arxiv.org/pdf/2411.16392) | [Quadric Serfel Rasterizer (python)](./quadratic_demo.py)
+[Project page](https://quadraticgs.github.io/QGS/) | [Paper](https://arxiv.org/pdf/2411.16392) | [Quadric Surfel Rasterizer (python)](./quadratic_demo.py)
 
 <div style="text-align: center;">
   <figure style="margin: 0;">
