@@ -1,0 +1,28 @@
+name: quadric_splatting
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - numpy=2.0.2
+  - ffmpeg=4.2.2
+  - pillow=10.4.0
+  - pip=23.3.1
+  - python=3.9.19
+  - pytorch=2.2.2
+  - torchvision=0.17.2
+  - typing_extensions=4.12.2
+  - omegaconf=2.3.0
+  - pip:
+    - open3d==0.18.0
+    - mediapy==1.2.2
+    - lpips==0.1.4
+    - scikit-image==0.24.0
+    - scikit-learn==1.5.1
+    - tqdm==4.66.4
+    - trimesh==4.4.3
+    - submodules/diff-gaussian-rasterization
+    - submodules/simple-knn
+    - plyfile
+    - opencv-python

@@ -1,0 +1,16 @@
+*.pyc
+.vscode
+output
+build
+data
+*.ply
+**/PKG-INFO
+**__pycache__**
+__pycache__
+*.png
+*.out
+eval
+*.npz
+**/tmp
+demo
+./*.pyc

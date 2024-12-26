@@ -1,0 +1,60 @@
+defaults:
+  - ./base.yaml
+
+skip_train: True
+skip_test: True
+skip_mesh: False
+skip_cull: False
+render_path: False
+# case_name: bicycle
+# case_name: bonsai
+# case_name: counter
+# case_name: flowers
+case_name: garden
+# case_name: kitchen
+# case_name: room
+# case_name: stump
+# case_name: treehill
+root_dir: /data1/zzy/public_data/mipnerf360/${case_name}
+
+GT_path:
+pipeline:
+  num_cluster: 1
+  depth_ratio: 1.0
+  mesh_res: 1024
+  voxel_size: 0.004
+  sdf_trunc: 0.016
+  depth_trunc: 3.5
+  # num_cluster: 1
+  # depth_ratio: 1.0
+  # mesh_res: 1024
+  # voxel_size: 0.006
+  # sdf_trunc: 0.024
+  # depth_trunc: 4.5
+dataset:
+  use_alpha: False
+  eval: False
+  downsample: 0.5
+
+optimizer:
+  percent_dense: 0.0001
+  densify_grad_threshold: 0.2
+  curvature_clamp_threshold: -5.0
+  lambda_dist: 500.0
+
+model_path: > 
+  ${root_dir}/exp/DepthRatio=${pipeline.depth_ratio}_
+  DensifyGrad=${optimizer.densify_grad_threshold}_
+  CurvClamp=${optimizer.curvature_clamp_threshold}_
+  Dist=${optimizer.lambda_dist}_
+  Percendent=${optimizer.percent_dense}
+# path to pre-trained model
+load_model_path: ${root_dir}/exp/DepthRatio=0.5_DensifyGrad=0.2_CurvClamp=-2.0_Dist=500.0_Percendent=0.0001
+
+# eval mesh
+# GT_path: the path to directory containing xxx_trans.txt, xxx.ply, xxx.json, xxx_COLMAP_SfM.log
+dataset_GT_path: /data1/zzy/public_data/TNT/TNT_GOF/TrainingSet/GT/${case_name}
+traj_path: ${root_dir}/${case_name}_COLMAP_SfM.log
+# mesh_ply_path: the path to directory containing mesh to evaluate
+mesh_ply_path: ${load_model_path}/train/ours_30000/fuse_post.ply
+eval_output_path: ${load_model_path}/train/ours_30000

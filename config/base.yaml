@@ -1,0 +1,85 @@
+skip_train: True
+skip_test: True
+skip_mesh: False
+skip_cull: False
+skip_metrics: False
+render_path: False
+case_name: scan63
+root_dir: /data1/zzy/public_data/DTU/DTU/${case_name}
+pipeline:
+  convert_SHs_python: false
+  compute_view2gaussian_python: false
+  debug: False
+  depth_ratio: 0.0
+  checkpoint_iterations: []
+  reciprocal_z: False
+  occlusion_awared_denom: False
+  unbounded: False
+  num_cluster: 50
+  mesh_res: 1024
+  voxel_size: 0.004
+  sdf_trunc: 0.016
+  depth_trunc: 3.0
+
+dataset:
+  name: colmap
+  model_path: ${model_path}
+  type: iterable # all || iterable
+  kernel_size: -1
+  undistortion: True
+  use_alpha: True
+  downsample: 0.5
+  eval: False
+  hold: 10000
+  resolution: -1
+  data_device: cuda
+  white_background: false
+
+gs_model:
+  sigma: 3.
+  sh_degree: 3
+  root_dir: ${root_dir}
+  output_dir: ${root_dir}/exp/QGS
+  model_path: ${model_path}
+  load_iteration: false
+  images: "images"
+  downsample: ${dataset.downsample}
+  white_background: ${dataset.white_background}
+  eval: ${dataset.eval}
+
+optimizer:
+  iterations: 30000
+  position_lr_init: 0.00016
+  position_lr_final: 0.0000016
+  position_lr_delay_mult: 0.01
+  position_lr_max_steps: 30000
+  feature_lr: 2.5e-3
+  opacity_lr: 5.e-2
+  scaling_lr: 5.e-3
+  rotation_lr: 1.e-3
+  percent_dense: 0.0001
+  densification_interval: 100
+  opacity_reset_interval: 3000
+  densify_from_iter: 500
+  densify_until_iter: 15000
+  normal_from_iter: 7000
+  dist_from_iter: 3000
+  curv_from_iter: 1000000
+  densify_grad_threshold: 0.5 
+  random_background: false
+  reset_opacity_densify_delay: 0
+
+
+  curvature_clamp_threshold: -10.0
+  occupancy_rate: 0.0
+  lambda_dssim: 0.2
+  lambda_dist: 50000.0
+  lambda_curv_dist: 0.0 # Simply using this two loss (curv dist and flat) performs poor
+  lambda_curv_flat: 0.0
+  lambda_normal: 0.05
+model_path: > 
+  ${root_dir}/exp/DepthRatio=${pipeline.depth_ratio}_
+  DensifyGrad=${optimizer.densify_grad_threshold}_
+  CurvClamp=${optimizer.curvature_clamp_threshold}_
+  Dist=${optimizer.lambda_dist}_
+  Percendent=${optimizer.percent_dense}

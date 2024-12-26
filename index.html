@@ -1,0 +1,209 @@
+
+
+<!DOCTYPE html>
+<html>
+
+<head lang="en">
+    <meta charset="UTF-8">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+
+    <title>Quadratic Gaussian Splatting</title>
+
+    <meta name="description" content="">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- Place favicon.ico in the root directory -->
+
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/font-awesome/4.4.0/css/font-awesome.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.8.0/codemirror.min.css">
+    <link rel="stylesheet" href="assets/css/bog/app.css">
+
+    <link rel="stylesheet" href="assets/css/bog/bootstrap.min.css">
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.8.0/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/clipboard.js/1.5.3/clipboard.min.js"></script>
+
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script type="text/javascript" id="MathJax-script" async
+        src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js">
+        </script>
+
+    <link rel="stylesheet" href="assets/css/bog/dics.min.css">
+    <script src="assets/js/bog/dics.min.js"></script>
+    <script src="assets/js/bog/video_comparison.js"></script>
+
+
+    <script src="assets/js/img_compare.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', domReady);
+        function domReady() {
+            for (const e of document.querySelectorAll(".b-dics")) {
+                new Dics({
+                    container: e,
+                    textPosition: "top"
+                });
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div class="container" id="main">
+        <div class="row">
+            <h2 class="col-md-12 text-center">
+                <b>QGS</b>: Quadratic Gaussian Splatting for Efficient and <br> Detailed Surface Reconstruction</br> 
+            </h2>
+        </div>
+        <div class="row">
+            <div class="col-md-12 text-center">
+                <ul class="list-inline">
+                    <!--<li>
+                         <a href="https://jonbarron.info/">
+                          Jonathan T. Barron
+                        </a>
+                        </br>Google 
+                    </li>-->
+                   
+                    
+                </ul>
+            </div>
+        </div>
+
+
+        <div class="row">
+                <div class="col-md-6 col-md-offset-3 text-center">
+                    <ul class="nav nav-pills nav-justified">
+                        <li>
+                            <a href="https://arxiv.org/pdf/2411.16392">
+                            <image src="assets/paper/paper.png" height="60px">
+                                <h4><strong>Paper</strong></h4>
+                            </a>
+                        </li>
+                        
+                       
+                        <li>
+                            <a href="https://github.com/QuadraticGS/QGS">
+                            <image src="assets/img/bog/github.png" height="60px">
+                                <h4><strong>Code</strong></h4>
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+        </div>
+
+
+
+<div class="row" style="text-align: center;">
+    <div class="col-md-8 col-md-offset-2">
+        <img id="image0" src="assets/teaser2.png" alt="Rendered Image" style="display: inline-block; margin: 0 auto; width: 750px; height: 374px; border: 2px solid #ccc;" />
+    </div>
+    <div class="col-md-8 col-md-offset-2">
+        <p class="text-center">
+            teaser
+        </p>
+    </div>
+</div>
+
+
+        <div class="row">
+            <div class="col-md-8 col-md-offset-2">
+                <h3>
+                    Abstract
+                </h3>
+                <p class="text-justify">
+Recently, 3D Gaussian Splatting (3DGS) has attracted attention for its superior rendering quality and speed over Neural Radiance Fields (NeRF). To address 3DGS's limitations in surface representation, 2D Gaussian Splatting (2DGS) introduced disks as scene primitives to model and reconstruct geometries from multi-view images, offering view-consistent geometry. However, the disk's first-order linear approximation often leads to over-smoothed results. We propose Quadratic Gaussian Splatting (QGS), a novel method that replaces disks with quadric surfaces, enhancing geometric fitting, whose code will be open-sourced. QGS defines Gaussian distributions in non-Euclidean space, allowing primitives to capture more complex textures. As a second-order surface approximation, QGS also renders spatial curvature to guide the normal consistency term, to effectively reduce over-smoothing. Moreover, QGS is a generalized version of 2DGS that achieves more accurate and detailed reconstructions, as verified by experiments on DTU and TNT, demonstrating its effectiveness in surpassing current state-of-the-art methods in geometry reconstruction.
+                </p>
+            </div>
+        </div>
+
+	
+
+	    
+<div class="row" style="display: flex; flex-wrap: wrap; justify-content: center; align-items: center; margin: 0; padding: 0;">
+    <div class="col-md-5" style="position: relative; padding: 0px; box-sizing: border-box;">
+        <video class="video" width="150%" id="teaser" loop playsinline autoplay muted src="assets/Ignatius.mp4" onplay="resizeAndPlay(this)" style="height: 600px;"></video>
+		<canvas height=600 class="videoMerge" id="teaserMerge"></canvas>
+        <p style="text-align: center;">Ignatius</p>
+    </div>
+
+     <div class="col-md-5" style="position: relative; padding: 0px; box-sizing: border-box;">
+        <video class="video" width="150%" id="teaser2" loop playsinline autoplay muted src="assets/Barn_pages.mp4" onplay="resizeAndPlay(this)" style="height: 360px;"></video>
+		<canvas height=600 class="videoMerge" id="teaser2Merge"></canvas>
+        <p style="text-align: center;">Barn</p>
+    </div>
+</div>
+   
+<div class="row" style="display: flex; flex-wrap: wrap; justify-content: center; align-items: center; margin: 0; padding: 0;">
+    <div class="col-md-5" style="position: relative; padding: 0px; box-sizing: border-box;">
+        <video class="video" width="150%" id="teaser3" loop playsinline autoplay muted src="assets/Truck_pages.mp4" onplay="resizeAndPlay(this)" style="height: 750px;"></video>
+	<canvas height=750 class="videoMerge" id="teaser3Merge"></canvas>
+        <p style="text-align: center;">Truck</p>
+    </div>
+
+     <div class="col-md-5" style="position: relative; padding: 0px; box-sizing: border-box;">
+        <video class="video" width="150%" id="teaser4" loop playsinline autoplay muted src="assets/Meetroom_pages.mp4" onplay="resizeAndPlay(this)" style="height: 600px;"></video>
+	<canvas height=600 class="videoMerge" id="teaser4Merge"></canvas>
+        <p style="text-align: center;">Meetingroom</p>
+    </div>
+</div>
+
+
+
+        <div class="row">
+            <div class="col-md-8 col-md-offset-2">
+                <h3>
+                    Video
+                </h3>
+                <div class="text-center">
+                    <div style="position:relative;padding-top:56.25%;">
+                        <video controls autoplay muted loop style="position:absolute;top:0;left:0;width:100%;height:100%;">
+                    <source src="assets/QGS_web.mp4" type="video/mp4">
+                    Your browser does not support the video tag.
+                	</video>
+                    </div>
+                </div>
+            </div>
+        </div>
+	    
+
+            
+        <div class="row">
+            <div class="col-md-8 col-md-offset-2">
+                <h3>
+                    Citation
+                </h3>
+		
+                <p>
+                    If you want to cite our work, please use:
+                </p>
+<pre style="font-size: 12px;">
+@misc{zhang2024quadraticgaussiansplattingefficient,
+      title={Quadratic Gaussian Splatting for Efficient and Detailed Surface Reconstruction}, 
+      author={Ziyu Zhang and Binbin Huang and Hanqing Jiang and Liyang Zhou and Xiaojun Xiang and Shunhan Shen},
+      year={2024},
+      eprint={2411.16392},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2411.16392}, 
+}</pre>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-8 col-md-offset-2">
+                <h3>
+                    Acknowledgements
+                </h3>
+                <p class="text-justify">
+                Thanks to Ricardo Martin-Brualla and David Salesin for their comments on the text, and to George Drettakis and Georgios Kopanas for graciously assisting us with our baseline evaluation.
+                    <br>
+                The website template was borrowed from <a href="http://mgharbi.com/">MichaĆ«l Gharbi</a>.
+                </p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
