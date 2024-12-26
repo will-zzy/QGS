@@ -2,19 +2,23 @@
 
 [Project page](https://quadraticgs.github.io/QGS/) | [Paper](https://arxiv.org/pdf/2411.16392) | [Quadric Serfel Rasterizer (python)](./quadratic_demo.py)
 
-![Teaser image](assets/teaser2.png)
+<div style="text-align: center;">
+  <figure style="margin: 0;">
+    <img src="assets/teaser2.png" alt="Image 1" width="1000">
+  </figure>
+</div>
 
 This repo contains the official implementation for the paper “Quadratic Gaussian Splatting for Efficient and Detailed Surface Reconstruction.”
 Following [2DGS](https://github.com/hbb1/2d-gaussian-splatting), we also provide a [Python demo](./quadratic_demo.py) that demonstrates the differentiable rasterization process for quadratic surfaces:
 <div style="display: flex; gap: 10px;">
   <figure style="margin: 0;">
-    <img src="assets/QGS_demo_convex.gif" alt="Image 1" width="400">
+    <img src="assets/QGS_demo_convex.gif" alt="Image 1" width="320">
   </figure>
   <figure style="margin: 0;">
-    <img src="assets/QGS_demo_saddle1.gif" alt="Image 2" width="400">
+    <img src="assets/QGS_demo_saddle1.gif" alt="Image 2" width="320">
   </figure>
   <figure style="margin: 0;">
-    <img src="assets/QGS_demo_saddle2.gif" alt="Image 3" width="400">
+    <img src="assets/QGS_demo_saddle2.gif" alt="Image 3" width="320">
   </figure>
 </div>
 
