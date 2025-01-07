@@ -12,6 +12,7 @@ pipeline:
 dataset:
   use_alpha: True
   eval: False
+  type: all
 
 optimizer:
   percent_dense: 0.0001

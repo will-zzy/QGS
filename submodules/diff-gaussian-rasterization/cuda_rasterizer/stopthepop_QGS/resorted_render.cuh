@@ -485,8 +485,7 @@ renderkBufferBackwardCUDA(
 
 	float last_dL_dT = 0;
 	
-	// We start from the back. The ID of the last contributing
-	// Gaussian is known from each pixel from the forward.
+	// We start from the front.
 	uint32_t contributor = 0;
 	const int median_contributor = inside ? n_contrib[pix_id + H * W] : 0;
 	float accum_rec[C] = { 0 };
@@ -632,7 +631,7 @@ renderkBufferBackwardCUDA(
 							   point_normal_unnormalized.y * cam_ray_local.y + 
 							   point_normal_unnormalized.z * cam_ray_local.z;
 		float sign_normal = copysign(1.0f, cos_ray_normal);
-		if (sign_normal > 0){ // 确保是外法向
+		if (sign_normal > 0){
 			point_normal_unnormalized.x *= -1.0f;
 			point_normal_unnormalized.y *= -1.0f;
 			point_normal_unnormalized.z *= -1.0f;
