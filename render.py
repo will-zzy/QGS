@@ -92,7 +92,7 @@ if __name__ == "__main__":
         gaussExtractor.gaussians.active_sh_degree = 0
         gaussExtractor.reconstruction(scene.getTrainCameras())
         # extract the mesh and save
-        if config.pipelinegs.unbounded:
+        if config.pipeline.unbounded:
             name = 'fuse_unbounded.ply'
             mesh = gaussExtractor.extract_mesh_unbounded(resolution=config.pipeline.mesh_res)
         else:
