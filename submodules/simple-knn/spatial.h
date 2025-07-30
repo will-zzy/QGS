@@ -10,8 +10,14 @@
  */
 
 #include <torch/extension.h>
+#include <cstdio>
+#include <sstream>
+#include <iostream>
+#include <tuple>
+#include <stdio.h>
 
-#define K_MAX 8
+#define K_MAX 20
 
 torch::Tensor distCUDA2(const torch::Tensor& points);
 torch::Tensor knnWithIndices(const torch::Tensor& points);
+std::tuple<torch::Tensor, torch::Tensor> knn_points(const torch::Tensor& points_1, const torch::Tensor& points_2);

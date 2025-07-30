@@ -15,4 +15,5 @@
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("distCUDA2", &distCUDA2);
   m.def("knnWithIndices", &knnWithIndices);
+  m.def("knn_points", &knn_points);
 }

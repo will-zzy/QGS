@@ -18,6 +18,7 @@ class SimpleKNN
 public:
 	static void knn(int P, float3* points, float* meanDists);
 	static void knn_with_indices(int P, float3* points, float* meanDists, int* knn_indices);
+	static void knn_points(int P1, int P2, float3* points_all, int* knn_indices, float* dists);
 };
 
 #endif

@@ -3,7 +3,7 @@ import torch
 import numpy as np
 import torch.nn.functional as F
 
-# copy from 2DGS
+# Copied from 2DGS
 def depths_to_points(view, depthmap):
     c2w = (view.world_view_transform.T).inverse()
     # c2w = torch.eye(c2w.shape[0],device = c2w.device)
@@ -18,8 +18,13 @@ def depths_to_points(view, depthmap):
     ).float().cuda()
     grid_x, grid_y = torch.meshgrid(torch.arange(W)+0.5, torch.arange(H)+0.5, indexing='xy')
     points = torch.stack([grid_x, grid_y, torch.ones_like(grid_x)], dim=-1).reshape(-1, 3).float().cuda()
-    rays_d = points @ intrins.inverse().T @ c2w[:3,:3].T
-    rays_o = c2w[:3,3]
+    # rays_d = points @ intrins.inverse().T @ c2w[:3,:3].T
+    # rays_o = c2w[:3, 3]
+    
+    
+    rays_o = torch.zeros_like(c2w[:3, 3])
+    rays_d = points @ intrins.inverse().T
+    
     points = depthmap.reshape(-1, 1) * rays_d + rays_o
     return points, rays_d
 

@@ -39,6 +39,8 @@ RasterizeGaussiansCUDA(
 	const torch::Tensor& campos,
 	const torch::Tensor& cam_intr,
 	const bool prefiltered,
+	const bool return_depth,
+	const bool return_normal,
 	const bool debug);
 
 std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor>
@@ -68,6 +70,8 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 	const int R,
 	const torch::Tensor& binningBuffer,
 	const torch::Tensor& imageBuffer,
+	const bool return_depth,
+	const bool return_normal,
 	const bool debug,
 	const bool stop_z_gradient,
 	const bool reciprocal_z);

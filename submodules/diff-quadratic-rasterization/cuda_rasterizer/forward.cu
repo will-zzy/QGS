@@ -167,8 +167,8 @@ __device__ bool computeAABB(
 	float3 & rscale,
 	int3* s_sign
 ){
-	rscale.x = __frcp_rn(scale.x) * __frcp_rn(scale.x);
-	rscale.y = __frcp_rn(scale.y) * __frcp_rn(scale.y);
+	rscale.x = __frcp_rn(scale.x * scale.x);
+	rscale.y = __frcp_rn(scale.y * scale.y);
 	rscale.z = __frcp_rn(scale.z);
 
 	float s_max = max(abs(scale.x), abs(scale.y));
@@ -179,15 +179,129 @@ __device__ bool computeAABB(
     s_sign->z = copysign(1, scale.z);
 
 	// Approximate the circular paraboloid using its major-axis representation.
-	const float a = s_sign->z * scale.z * rs2_max;
-
+	const float a0 = s_sign->z * scale.z * rscale.x;
+	const float a1 = s_sign->z * scale.z * rscale.y;
 	// find x0 S.t. f(ax0^2) = sigma * s_max, see Eq. 23 in the paper of QGS
-	const float l0 = GetRootfromEquation(sigma * s_max, a); 
-	const float l0_2 = a * l0 * l0;
+	const float l0 = GetRootfromEquation(sigma * abs(scale.x), a0); 
+	const float l1 = GetRootfromEquation(sigma * abs(scale.y), a1); 
+
+	// intersected line (i.e. x = x_0, y = x_1) of tagent plane of each axis and plane z=0 
+	float x_0 = (l0 * abs(scale.x) - l0 * l0 / 2) / abs(scale.x);
+	float x_1 = (l1 * abs(scale.y) - l1 * l1 / 2) / abs(scale.y);
+	
+	x_0 = min(l0, max(x_0, 0.0f));
+	x_1 = min(l1, max(x_1, 0.0f));
+	//
+
+	const float l_2 = abs(scale.x) > abs(scale.y) ? a0 * l0 * l0 : a1 * l1 * l1;
 
 	const bool saddle = (s_sign->x * s_sign->y) < 0 ? true: false;
 	const bool convex = (!saddle) && (s_sign->x * s_sign->z >= 0) ? true : false;
 	const bool concave = (!saddle) && (s_sign->x * s_sign->z < 0) ? true : false;
+
+	float Points[24] = {0.0f}; // 3D BBox
+	float l_2_divide_10 = l_2 / 10;
+	if(convex){
+		Points[0] = -x_0; 
+		Points[1] = -x_1;
+		Points[2] = -l_2_divide_10;
+		
+		Points[3] = x_0;  
+		Points[4] = -x_1;
+		Points[5] = -l_2_divide_10;
+		
+		Points[6] = -x_0;
+		Points[7] = x_1;
+		Points[8] = -l_2_divide_10;
+		
+		Points[9] = x_0;
+		Points[10] = x_1;
+		Points[11] = -l_2_divide_10;
+		
+		Points[12] = -l0;
+		Points[13] = -l1;
+		Points[14] = l_2;
+		
+		Points[15] = l0;
+		Points[16] = -l1;
+		Points[17] = l_2;
+
+		Points[18] = -l0;
+		Points[19] = l1;
+		Points[20] = l_2;
+		
+		Points[21] = l0;
+		Points[22] = l1;
+		Points[23] = l_2;
+	}
+	else if(concave){
+		Points[0] = -l0; 
+		Points[1] = -l1;
+		Points[2] = -l_2;
+		
+		Points[3] = l0;  
+		Points[4] = -l1;
+		Points[5] = -l_2;
+		
+		Points[6] = -l0;
+		Points[7] = l1;
+		Points[8] = -l_2;
+		
+		Points[9] = l0;
+		Points[10] = l1;
+		Points[11] = -l_2;
+		
+		Points[12] = -x_0;
+		Points[13] = -x_1;
+		Points[14] = l_2_divide_10;
+		
+		Points[15] = x_0;
+		Points[16] = -x_1;
+		Points[17] = l_2_divide_10;
+
+		Points[18] = -x_0;
+		Points[19] = x_1;
+		Points[20] = l_2_divide_10;
+		
+		Points[21] = x_0;
+		Points[22] = x_1;
+		Points[23] = l_2_divide_10;
+	}
+	else{
+		Points[0] = -l0; 
+		Points[1] = -l1;
+		Points[2] = -l_2;
+		
+		Points[3] = l0;  
+		Points[4] = -l1;
+		Points[5] = -l_2;
+		
+		Points[6] = -l0;
+		Points[7] = l1;
+		Points[8] = -l_2;
+		
+		Points[9] = l0;
+		Points[10] = l1;
+		Points[11] = -l_2;
+		
+		Points[12] = -l0;
+		Points[13] = -l1;
+		Points[14] = l_2;
+		
+		Points[15] = l0;
+		Points[16] = -l1;
+		Points[17] = l_2;
+
+		Points[18] = -l0;
+		Points[19] = l1;
+		Points[20] = l_2;
+		
+		Points[21] = l0;
+		Points[22] = l1;
+		Points[23] = l_2;
+	}
+
+
 
 	float x_min = FLT_MAX;
 	float y_min = FLT_MAX;
@@ -196,16 +310,18 @@ __device__ bool computeAABB(
 	float y_max = -FLT_MAX;
 	
 	// 
+	#pragma unroll
 	for(int i = 0; i < 8; i++){
-		glm::vec4 P = glm::vec4((float)((i & 1) << 1) - 1, 
-					(float)(i & 2) - 1,
-					(float)((i & 4) >> 1) - 1,
-					1.0f);
-		P.z *= i & 4 ? (float)(saddle | convex) : (float)(saddle | concave);
+		// glm::vec4 P = glm::vec4((float)((i & 1) << 1) - 1, 
+		// 			(float)(i & 2) - 1,
+		// 			(float)((i & 4) >> 1) - 1,
+		// 			1.0f);
+		// P.z *= i & 4 ? (float)(saddle | convex) : (float)(saddle | concave);
 
-		P.x *= l0;
-		P.y *= l0;
-		P.z *= l0_2;
+		// P.x *= l0;
+		// P.y *= l1;
+		// P.z *= l_2;
+		glm::vec4 P = {Points[3 * i + 0], Points[3 * i + 1], Points[3 * i + 2], 1.0f};
 		
 		glm::vec4 p_image = G2V * P;
 		p_image.z = max(p_image.z, 0.01);
@@ -348,11 +464,11 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	tiles_touched[idx] = (rect_max.y - rect_min.y) * (rect_max.x - rect_min.x);
 
 	// Be careful! When the radii equals zero, tiles_touched may still be nonzero.
-	if (radii[idx] < 1){ 
-		printf("Warning! A primitive with zero scale may occur!\n radii:%d\n",radii[idx]);
-		printf("x:%u, y:%u, tiles_touched:%d\n",extent.x, extent.y, tiles_touched[idx]);
-		radii[idx] = max(1, int(ceil(sqrt(tiles_touched[idx]))));
-	}
+	// if (radii[idx] < 1){ 
+	// 	printf("Warning! A primitive with zero scale may occur!\n radii:%d\n",radii[idx]);
+	// 	printf("x:%u, y:%u, tiles_touched:%d\n",extent.x, extent.y, tiles_touched[idx]);
+	// 	radii[idx] = max(1, int(ceil(sqrt(tiles_touched[idx]))));
+	// }
 	aabb[4 * idx] = rect_min.x;
 	aabb[4 * idx + 1] = rect_min.y;
 	aabb[4 * idx + 2] = rect_max.x;
@@ -380,6 +496,8 @@ renderCUDA(
 	const float* __restrict__ depths,
 	const float4* __restrict__ rscales_opacity,
 	const int3* __restrict__ scales_sign,
+	const bool return_depth,
+	const bool return_normal,
 	float* __restrict__ final_T,
 	uint32_t* __restrict__ n_contrib,
 	const float* __restrict__ bg_color,
@@ -527,7 +645,7 @@ renderCUDA(
 				r0_2 = 1 / (cos2_sin2.x * rscale_o_j.x + cos2_sin2.y * rscale_o_j.y);
 
 				// if the Gaussian weight at the intersection is too small, skip it.
-				if (s_2 <= r0_2 * sigma * sigma){
+				if (s_2 <= r0_2 * sigma * sigma / 1){
 					intersect = true;
 					break;
 				}	
@@ -538,91 +656,100 @@ renderCUDA(
 			
 			float power = - s_2 / (2 * r0_2);
 
-			// NDC mapping is taken from 2DGS paper, please check here https://arxiv.org/pdf/2403.17888.pdf
-			const float max_t = root;
-			const float mapped_max_t = (FAR_PLANE * max_t - FAR_PLANE * NEAR_PLANE) / ((FAR_PLANE - NEAR_PLANE) * max_t);
 			
-			float3 point_normal_unnormalized = {2 * p.x * rscale_sign_j.x, 2 * p.y * rscale_sign_j.y, -rscale_sign_j.z};
-			float cos_ray_normal = point_normal_unnormalized.x*cam_ray_local.x + point_normal_unnormalized.y*cam_ray_local.y + point_normal_unnormalized.z*cam_ray_local.z;
-			float sign_normal = copysign(1.0f, cos_ray_normal);
-
-			// Ensure that the normal is oriented outward.
-			if (sign_normal > 0){ 
-				point_normal_unnormalized.x *= -1.0f;
-				point_normal_unnormalized.y *= -1.0f;
-				point_normal_unnormalized.z *= -1.0f;
-			}
-			
-			float length = sqrt(point_normal_unnormalized.x * point_normal_unnormalized.x + point_normal_unnormalized.y * point_normal_unnormalized.y + point_normal_unnormalized.z * point_normal_unnormalized.z + 1e-7);
-			float3 point_normal = { point_normal_unnormalized.x / length, point_normal_unnormalized.y / length, point_normal_unnormalized.z / length };
-			
-
-			// transform to view space
-			float3 transformed_normal = {
-				view2gaussian_j[0] * point_normal.x + view2gaussian_j[1] * point_normal.y + view2gaussian_j[2] * point_normal.z,
-				view2gaussian_j[4] * point_normal.x + view2gaussian_j[5] * point_normal.y + view2gaussian_j[6] * point_normal.z,
-				view2gaussian_j[8] * point_normal.x + view2gaussian_j[9] * point_normal.y + view2gaussian_j[10] * point_normal.z,
-			};
-			
-			const float normal[3] = { transformed_normal.x, transformed_normal.y, transformed_normal.z};
 			
 			// Eq. (2) from 3D Gaussian splatting paper.
 			// Obtain alpha by multiplying with Gaussian opacity
 			// and its exponential falloff from mean.
 			// Avoid numerical instabilities (see paper appendix). 
 			float alpha = min(0.99f, rscale_o_j.w * exp(power));
+			// float alpha = 1 * exp(-power * power);
+
+			// float alpha = 0.99f;
 			if (alpha < 1.0f / 255.0f)
 				continue;
+			alpha = 1 * exp(-sqrt(sqrt(-power)));
+			done = true;
 			float test_T = T * (1 - alpha);
+			
 			if (test_T < 0.0001f)
 			{
 				done = true;
 				continue;
 			}
 
-			// distortion loss is taken from 2DGS paper, please check https://arxiv.org/pdf/2403.17888.pdf
-			A = 1-T;
-			float error = mapped_max_t * mapped_max_t * A + dist2 - 2 * mapped_max_t * dist1;
-			C[DISTORTION_OFFSET] += error * alpha * T;
-			
-			dist1 += mapped_max_t * alpha * T;
-			dist2 += mapped_max_t * mapped_max_t * alpha * T;
+			if (return_depth){
+				// NDC mapping is taken from 2DGS paper, please check here https://arxiv.org/pdf/2403.17888.pdf
+				const float max_t = root;
+				const float mapped_max_t = (FAR_PLANE * max_t - FAR_PLANE * NEAR_PLANE) / ((FAR_PLANE - NEAR_PLANE) * max_t);
 
-			// Eq. (3) from 3D Gaussian splatting paper.
-			for (int ch = 0; ch < CHANNELS; ch++)
-				C[ch] += features[collected_id[j] * CHANNELS + ch] * alpha * T;
+				// distortion loss is taken from 2DGS paper, please check https://arxiv.org/pdf/2403.17888.pdf
+				A = 1-T;
+				float error = mapped_max_t * mapped_max_t * A + dist2 - 2 * mapped_max_t * dist1;
+				C[DISTORTION_OFFSET] += error * alpha * T;
+				
+				dist1 += mapped_max_t * alpha * T;
+				dist2 += mapped_max_t * mapped_max_t * alpha * T;
+				// median depth
+				
+				C[DEPTH_OFFSET] += root * alpha * T;
+			}
 			
-			// normal
-			for (int ch = 0; ch < CHANNELS; ch++)
-				C[NORMAL_OFFSET + ch] += normal[ch] * alpha * T;
-			
-			// median depth
+			if (return_normal){ // and curvature
+				float3 point_normal_unnormalized = {2 * p.x * rscale_sign_j.x, 2 * p.y * rscale_sign_j.y, -rscale_sign_j.z};
+				float cos_ray_normal = point_normal_unnormalized.x*cam_ray_local.x + point_normal_unnormalized.y*cam_ray_local.y + point_normal_unnormalized.z*cam_ray_local.z;
+				float sign_normal = copysign(1.0f, cos_ray_normal);
+	
+				// Ensure that the normal is oriented outward.
+				if (sign_normal > 0){ 
+					point_normal_unnormalized.x *= -1.0f;
+					point_normal_unnormalized.y *= -1.0f;
+					point_normal_unnormalized.z *= -1.0f;
+				}
+				
+				float length = sqrt(point_normal_unnormalized.x * point_normal_unnormalized.x + point_normal_unnormalized.y * point_normal_unnormalized.y + point_normal_unnormalized.z * point_normal_unnormalized.z + 1e-7);
+				float3 point_normal = { point_normal_unnormalized.x / length, point_normal_unnormalized.y / length, point_normal_unnormalized.z / length };
+				
+	
+				// transform to view space
+				float3 transformed_normal = {
+					view2gaussian_j[0] * point_normal.x + view2gaussian_j[1] * point_normal.y + view2gaussian_j[2] * point_normal.z,
+					view2gaussian_j[4] * point_normal.x + view2gaussian_j[5] * point_normal.y + view2gaussian_j[6] * point_normal.z,
+					view2gaussian_j[8] * point_normal.x + view2gaussian_j[9] * point_normal.y + view2gaussian_j[10] * point_normal.z,
+				};
+				
+				const float normal[3] = { transformed_normal.x, transformed_normal.y, transformed_normal.z};
+				// normal
+				for (int ch = 0; ch < CHANNELS; ch++)
+					C[NORMAL_OFFSET + ch] += normal[ch] * alpha * T;
+				// compute gaussian curvature, see the supplementary material of QGS.
+				float coeff_1 = scale_j.z * rscale_sign_j.x;
+				float coeff_2 = scale_j.z * rscale_sign_j.y;
+				float a2u2 = coeff_1 * coeff_1 * p.x * p.x;
+				float b2v2 = coeff_2 * coeff_2 * p.y * p.y;
+				float den = 1 + 4 * (a2u2 + b2v2);
+				float curvature = 4 * coeff_1 * coeff_2 * __frcp_rn(den * den);
+				C[CURVATURE_OFFSET] += alpha * T * curvature;
+				float error_curv = curvature * curvature * A + curv2 - 2 * curvature * curv1;
+				C[CURV_DISTORTION_OFFSET] += error_curv * alpha * T;
+
+				curv1 += curvature * alpha * T;
+				curv2 += curvature * curvature * alpha * T;
+		
+			}
 			if (T > 0.5){
 				C[MIDDEPTH_OFFSET] = root;
 				median_weight = alpha * T;
 				median_contributor = contributor;
 			}
 			
-			// render depth and alpha
-			C[DEPTH_OFFSET] += root * alpha * T;
+			
+			// Eq. (3) from 3D Gaussian splatting paper.
+			for (int ch = 0; ch < CHANNELS; ch++)
+				C[ch] += features[collected_id[j] * CHANNELS + ch] * alpha * T;
+			
+			// alpha
 			C[ALPHA_OFFSET] += alpha * T;
-
-			// compute gaussian curvature, see the supplementary material of QGS.
-			float coeff_1 = scale_j.z * rscale_sign_j.x;
-			float coeff_2 = scale_j.z * rscale_sign_j.y;
-			float a2u2 = coeff_1 * coeff_1 * p.x * p.x;
-			float b2v2 = coeff_2 * coeff_2 * p.y * p.y;
-			float den = 1 + 4 * (a2u2 + b2v2);
-			float curvature = 4 * coeff_1 * coeff_2 * __frcp_rn(den * den);
-
-			C[CURVATURE_OFFSET] += alpha * T * curvature;
-
-
-			float error_curv = curvature * curvature * A + curv2 - 2 * curvature * curv1;
-			C[CURV_DISTORTION_OFFSET] += error_curv * alpha * T;
-
-			curv1 += curvature * alpha * T;
-			curv2 += curvature * curvature * alpha * T;
 
 			T = test_T;
 
@@ -645,29 +772,30 @@ renderCUDA(
 		// distortion /= (1 - T) * (1 - T) + 1e-7;
 
 		final_T[pix_id] = T; // storing A, D1, D2, dist_unnormal
-		final_T[pix_id + H * W] = dist1;
-		final_T[pix_id + 2 * H * W] = dist2;
-		final_T[pix_id + 3 * H * W] = distortion_before_normalized;
-		final_T[pix_id + 4 * H * W] = curv1;
-		final_T[pix_id + 5 * H * W] = curv2;
+		if (return_depth){
+			final_T[pix_id + H * W] = dist1;
+			final_T[pix_id + 2 * H * W] = dist2;
+			final_T[pix_id + 3 * H * W] = distortion_before_normalized;
+			out_color[DEPTH_OFFSET * H * W + pix_id] = C[DEPTH_OFFSET];
+			out_color[DISTORTION_OFFSET * H * W + pix_id] = C[DISTORTION_OFFSET];
+		}
+		if (return_normal){
+			final_T[pix_id + 4 * H * W] = curv1;
+			final_T[pix_id + 5 * H * W] = curv2;
+			out_color[CURVATURE_OFFSET * H * W + pix_id] = C[CURVATURE_OFFSET];
+			out_color[CURV_DISTORTION_OFFSET * H * W + pix_id] = C[CURV_DISTORTION_OFFSET];
+			for (int ch = 0; ch < CHANNELS; ch++)
+				out_color[(NORMAL_OFFSET + ch) * H * W + pix_id] = C[NORMAL_OFFSET+ch];
+		}
 
 		n_contrib[pix_id] = last_contributor;
 		n_contrib[pix_id + H * W] = median_contributor;
-
-		for (int ch = 0; ch < CHANNELS; ch++){
-			out_color[ch * H * W + pix_id] = C[ch] + T * bg_color[ch];
-			out_color[(NORMAL_OFFSET + ch) * H * W + pix_id] = C[NORMAL_OFFSET+ch];
-		}
-		out_color[DEPTH_OFFSET * H * W + pix_id] = C[DEPTH_OFFSET];
-		out_color[ALPHA_OFFSET * H * W + pix_id] = C[ALPHA_OFFSET];
-
-		out_color[DISTORTION_OFFSET * H * W + pix_id] = C[DISTORTION_OFFSET];
-
 		out_color[MIDDEPTH_OFFSET * H * W + pix_id] = C[MIDDEPTH_OFFSET];
-		out_color[MEDIAN_WEIGHT_OFFSET * H * W + pix_id] = C[MEDIAN_WEIGHT_OFFSET];
 
-		out_color[CURVATURE_OFFSET * H * W + pix_id] = C[CURVATURE_OFFSET];
-		out_color[CURV_DISTORTION_OFFSET * H * W + pix_id] = C[CURV_DISTORTION_OFFSET];
+		for (int ch = 0; ch < CHANNELS; ch++)
+			out_color[ch * H * W + pix_id] = C[ch] + T * bg_color[ch];
+		out_color[ALPHA_OFFSET * H * W + pix_id] = C[ALPHA_OFFSET];
+		out_color[MEDIAN_WEIGHT_OFFSET * H * W + pix_id] = C[MEDIAN_WEIGHT_OFFSET];
 	}
 }
 
@@ -690,6 +818,8 @@ void FORWARD::render(
 	const float* depths,
 	const float4* rscales_opacity,
 	const int3* scales_sign,
+	const bool return_depth,
+	const bool return_normal,
 	float* final_T,
 	uint32_t* n_contrib,
 	const float* bg_color,
@@ -713,6 +843,8 @@ void FORWARD::render(
 		depths,
 		rscales_opacity,
 		scales_sign,
+		return_depth,
+		return_normal,
 		final_T,
 		n_contrib,
 		bg_color,
@@ -735,6 +867,8 @@ void FORWARD::render(
 		depths,
 		rscales_opacity,
 		scales_sign,
+		return_depth,
+		return_normal,
 		final_T,
 		n_contrib,
 		bg_color,

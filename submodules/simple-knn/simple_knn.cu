@@ -9,327 +9,450 @@
  * For inquiries contact  george.drettakis@inria.fr
  */
 
- #define BOX_SIZE 512
- // #define K_MAX 15
+#define BOX_SIZE 512
+// #define K_MAX 15
+
+#include "cuda_runtime.h"
+#include "device_launch_parameters.h"
+#include "simple_knn.h"
+#include <cub/cub.cuh>
+#include <cub/device/device_radix_sort.cuh>
+#include <vector>
+#include <cuda_runtime_api.h>
+#include <thrust/device_vector.h>
+#include <thrust/sequence.h>
+#define __CUDACC__
+#include <cooperative_groups.h>
+#include <cooperative_groups/reduce.h>
  
- #include "cuda_runtime.h"
- #include "device_launch_parameters.h"
- #include "simple_knn.h"
- #include <cub/cub.cuh>
- #include <cub/device/device_radix_sort.cuh>
- #include <vector>
- #include <cuda_runtime_api.h>
- #include <thrust/device_vector.h>
- #include <thrust/sequence.h>
- #define __CUDACC__
- #include <cooperative_groups.h>
- #include <cooperative_groups/reduce.h>
+namespace cg = cooperative_groups;
+
+struct CustomMin
+{
+	__device__ __forceinline__
+	float3 operator()(const float3& a, const float3& b) const {
+	return { min(a.x, b.x), min(a.y, b.y), min(a.z, b.z) };
+	}
+};
  
- namespace cg = cooperative_groups;
+struct CustomMax
+{
+	__device__ __forceinline__
+		float3 operator()(const float3& a, const float3& b) const {
+		return { max(a.x, b.x), max(a.y, b.y), max(a.z, b.z) };
+	}
+};
  
- struct CustomMin
- {
-	 __device__ __forceinline__
-		 float3 operator()(const float3& a, const float3& b) const {
-		 return { min(a.x, b.x), min(a.y, b.y), min(a.z, b.z) };
-	 }
- };
+__host__ __device__ uint32_t prepMorton(uint32_t x)
+{
+	x = (x | (x << 16)) & 0x030000FF;
+	x = (x | (x << 8)) & 0x0300F00F;
+	x = (x | (x << 4)) & 0x030C30C3;
+	x = (x | (x << 2)) & 0x09249249;
+	return x;
+}
  
- struct CustomMax
- {
-	 __device__ __forceinline__
-		 float3 operator()(const float3& a, const float3& b) const {
-		 return { max(a.x, b.x), max(a.y, b.y), max(a.z, b.z) };
-	 }
- };
+__host__ __device__ uint32_t coord2Morton(float3 coord, float3 minn, float3 maxx)
+{
+	uint32_t x = prepMorton(((coord.x - minn.x) / (maxx.x - minn.x)) * ((1 << 10) - 1));
+	uint32_t y = prepMorton(((coord.y - minn.y) / (maxx.y - minn.y)) * ((1 << 10) - 1));
+	uint32_t z = prepMorton(((coord.z - minn.z) / (maxx.z - minn.z)) * ((1 << 10) - 1));
  
- __host__ __device__ uint32_t prepMorton(uint32_t x)
- {
-	 x = (x | (x << 16)) & 0x030000FF;
-	 x = (x | (x << 8)) & 0x0300F00F;
-	 x = (x | (x << 4)) & 0x030C30C3;
-	 x = (x | (x << 2)) & 0x09249249;
-	 return x;
- }
+	return x | (y << 1) | (z << 2);
+}
  
- __host__ __device__ uint32_t coord2Morton(float3 coord, float3 minn, float3 maxx)
- {
-	 uint32_t x = prepMorton(((coord.x - minn.x) / (maxx.x - minn.x)) * ((1 << 10) - 1));
-	 uint32_t y = prepMorton(((coord.y - minn.y) / (maxx.y - minn.y)) * ((1 << 10) - 1));
-	 uint32_t z = prepMorton(((coord.z - minn.z) / (maxx.z - minn.z)) * ((1 << 10) - 1));
+__global__ void coord2Morton(int P, const float3* points, float3 minn, float3 maxx, uint32_t* codes)
+{
+	auto idx = cg::this_grid().thread_rank();
+	if (idx >= P)
+		return;
  
-	 return x | (y << 1) | (z << 2);
- }
+	codes[idx] = coord2Morton(points[idx], minn, maxx);
+}
  
- __global__ void coord2Morton(int P, const float3* points, float3 minn, float3 maxx, uint32_t* codes)
- {
-	 auto idx = cg::this_grid().thread_rank();
-	 if (idx >= P)
-		 return;
- 
-	 codes[idx] = coord2Morton(points[idx], minn, maxx);
- }
- 
- struct MinMax
- {
-	 float3 minn;
-	 float3 maxx;
- };
+struct MinMax
+{
+	float3 minn;
+	float3 maxx;
+};
  
  __global__ void boxMinMax(uint32_t P, float3* points, uint32_t* indices, MinMax* boxes)
- {
-	 auto idx = cg::this_grid().thread_rank();
+{
+	auto idx = cg::this_grid().thread_rank();
+	uint32_t offset = 1 << 31;
+	MinMax me;
+	if (idx < P)
+	{
+		auto idx_point = indices[idx];
+		if (indices[idx] & offset)
+			idx_point = indices[idx] - offset;
+		// printf("%u\n", (uint32_t)idx_point);
+		me.minn = points[idx_point];
+		me.maxx = points[idx_point];
+	}
+	else
+	{
+		me.minn = { FLT_MAX, FLT_MAX, FLT_MAX };
+		me.maxx = { -FLT_MAX,-FLT_MAX,-FLT_MAX };
+	}
  
-	 MinMax me;
-	 if (idx < P)
-	 {
-		 me.minn = points[indices[idx]];
-		 me.maxx = points[indices[idx]];
-	 }
-	 else
-	 {
-		 me.minn = { FLT_MAX, FLT_MAX, FLT_MAX };
-		 me.maxx = { -FLT_MAX,-FLT_MAX,-FLT_MAX };
-	 }
+	__shared__ MinMax redResult[BOX_SIZE];
  
-	 __shared__ MinMax redResult[BOX_SIZE];
+	for (int off = BOX_SIZE / 2; off >= 1; off /= 2) // 分治
+	{
+		if (threadIdx.x < 2 * off)
+			redResult[threadIdx.x] = me;
+		__syncthreads();
  
-	 for (int off = BOX_SIZE / 2; off >= 1; off /= 2) // 分治
-	 {
-		 if (threadIdx.x < 2 * off)
-			 redResult[threadIdx.x] = me;
-		 __syncthreads();
+		if (threadIdx.x < off) // 线程同步后，线程比较并更新最小和最大值
+		{
+			MinMax other = redResult[threadIdx.x + off];
+			me.minn.x = min(me.minn.x, other.minn.x);
+			me.minn.y = min(me.minn.y, other.minn.y);
+			me.minn.z = min(me.minn.z, other.minn.z);
+			me.maxx.x = max(me.maxx.x, other.maxx.x);
+			me.maxx.y = max(me.maxx.y, other.maxx.y);
+			me.maxx.z = max(me.maxx.z, other.maxx.z);
+		}
+		__syncthreads();
+	}
  
-		 if (threadIdx.x < off) // 线程同步后，线程比较并更新最小和最大值
-		 {
-			 MinMax other = redResult[threadIdx.x + off];
-			 me.minn.x = min(me.minn.x, other.minn.x);
-			 me.minn.y = min(me.minn.y, other.minn.y);
-			 me.minn.z = min(me.minn.z, other.minn.z);
-			 me.maxx.x = max(me.maxx.x, other.maxx.x);
-			 me.maxx.y = max(me.maxx.y, other.maxx.y);
-			 me.maxx.z = max(me.maxx.z, other.maxx.z);
-		 }
-		 __syncthreads();
-	 }
+	if (threadIdx.x == 0)
+		boxes[blockIdx.x] = me;
+}
  
-	 if (threadIdx.x == 0)
-		 boxes[blockIdx.x] = me;
- }
+__device__ __host__ float distBoxPoint(const MinMax& box, const float3& p)
+{
+	float3 diff = { 0, 0, 0 };
+	if (p.x < box.minn.x || p.x > box.maxx.x)
+		diff.x = min(abs(p.x - box.minn.x), abs(p.x - box.maxx.x));
+	if (p.y < box.minn.y || p.y > box.maxx.y)
+		diff.y = min(abs(p.y - box.minn.y), abs(p.y - box.maxx.y));
+	if (p.z < box.minn.z || p.z > box.maxx.z)
+		diff.z = min(abs(p.z - box.minn.z), abs(p.z - box.maxx.z));
+	return diff.x * diff.x + diff.y * diff.y + diff.z * diff.z;
+}
  
- __device__ __host__ float distBoxPoint(const MinMax& box, const float3& p)
- {
-	 float3 diff = { 0, 0, 0 };
-	 if (p.x < box.minn.x || p.x > box.maxx.x)
-		 diff.x = min(abs(p.x - box.minn.x), abs(p.x - box.maxx.x));
-	 if (p.y < box.minn.y || p.y > box.maxx.y)
-		 diff.y = min(abs(p.y - box.minn.y), abs(p.y - box.maxx.y));
-	 if (p.z < box.minn.z || p.z > box.maxx.z)
-		 diff.z = min(abs(p.z - box.minn.z), abs(p.z - box.maxx.z));
-	 return diff.x * diff.x + diff.y * diff.y + diff.z * diff.z;
- }
+template<int K>
+__device__ void updateKBest(const float3& ref, const float3& point, float* knn)
+{
+	float3 d = { point.x - ref.x, point.y - ref.y, point.z - ref.z };
+	float dist = d.x * d.x + d.y * d.y + d.z * d.z;
+	for (int j = 0; j < K; j++)
+	{
+		if (knn[j] > dist)
+		{
+			float t = knn[j];
+			knn[j] = dist;
+			dist = t;
+		}
+	}
+}
  
- template<int K>
- __device__ void updateKBest(const float3& ref, const float3& point, float* knn)
- {
-	 float3 d = { point.x - ref.x, point.y - ref.y, point.z - ref.z };
-	 float dist = d.x * d.x + d.y * d.y + d.z * d.z;
-	 for (int j = 0; j < K; j++)
-	 {
-		 if (knn[j] > dist)
-		 {
-			 float t = knn[j];
-			 knn[j] = dist;
-			 dist = t;
-		 }
-	 }
- }
+template<int K>
+__device__ void updateKBestIndices(const float3& ref, const float3& point, const uint32_t point_idx, float* knn, uint32_t* indices)
+{
+	float3 d = { point.x - ref.x, point.y - ref.y, point.z - ref.z };
+	float dist = d.x * d.x + d.y * d.y + d.z * d.z;
+	uint32_t tmp_idx = point_idx;
+	for (int j = 0; j < K; j++)
+	{
+		if (knn[j] > dist)
+		{
+			float t = knn[j];
+			knn[j] = dist;
+			dist = t;
  
- template<int K>
- __device__ void updateKBestIndices(const float3& ref, const float3& point, const uint32_t point_idx, float* knn, uint32_t* indices)
- {
-	 float3 d = { point.x - ref.x, point.y - ref.y, point.z - ref.z };
-	 float dist = d.x * d.x + d.y * d.y + d.z * d.z;
-	 uint32_t tmp_idx = point_idx;
-	 for (int j = 0; j < K; j++)
-	 {
-		 if (knn[j] > dist)
-		 {
-			 float t = knn[j];
-			 knn[j] = dist;
-			 dist = t;
+			uint32_t index = indices[j];
+			indices[j] = tmp_idx;
+			tmp_idx = index;
+		}
+	}
+}
+
  
-			 uint32_t index = indices[j];
-			 indices[j] = tmp_idx;
-			 tmp_idx = index;
-		 }
-	 }
- }
+__global__ void boxMeanDist(uint32_t P, float3* points, uint32_t* indices, MinMax* boxes, float* dists)
+{
+	int idx = cg::this_grid().thread_rank();
+	if (idx >= P)
+		return;
  
- __global__ void boxMeanDist(uint32_t P, float3* points, uint32_t* indices, MinMax* boxes, float* dists)
- {
-	 int idx = cg::this_grid().thread_rank();
-	 if (idx >= P)
-		 return;
+	float3 point = points[indices[idx]];
+	float best[3] = { FLT_MAX, FLT_MAX, FLT_MAX };
  
-	 float3 point = points[indices[idx]];
-	 float best[3] = { FLT_MAX, FLT_MAX, FLT_MAX };
+	for (int i = max(0, idx - 3); i <= min(P - 1, idx + 3); i++)
+	{
+		if (i == idx)
+			continue;
+		updateKBest<3>(point, points[indices[i]], best);
+	}
  
-	 for (int i = max(0, idx - 3); i <= min(P - 1, idx + 3); i++)
-	 {
-		 if (i == idx)
-			 continue;
-		 updateKBest<3>(point, points[indices[i]], best);
-	 }
+	float reject = best[2];
+	best[0] = FLT_MAX;
+	best[1] = FLT_MAX;
+	best[2] = FLT_MAX;
  
-	 float reject = best[2];
-	 best[0] = FLT_MAX;
-	 best[1] = FLT_MAX;
-	 best[2] = FLT_MAX;
+	for (int b = 0; b < (P + BOX_SIZE - 1) / BOX_SIZE; b++)
+	{
+		MinMax box = boxes[b];
+		float dist = distBoxPoint(box, point);
+		if (dist > reject || dist > best[2])
+			continue;
  
-	 for (int b = 0; b < (P + BOX_SIZE - 1) / BOX_SIZE; b++)
-	 {
-		 MinMax box = boxes[b];
-		 float dist = distBoxPoint(box, point);
-		 if (dist > reject || dist > best[2])
-			 continue;
+		for (int i = b * BOX_SIZE; i < min(P, (b + 1) * BOX_SIZE); i++)
+		{
+			if (i == idx)
+				continue;
+			updateKBest<3>(point, points[indices[i]], best);
+		}
+	}
+	dists[indices[idx]] = (best[0] + best[1] + best[2]) / 3.0f;
+}
+
+void SimpleKNN::knn(int P, float3* points, float* meanDists)
+{
+	float3* result;
+	cudaMalloc(&result, sizeof(float3));
+	size_t temp_storage_bytes;
  
-		 for (int i = b * BOX_SIZE; i < min(P, (b + 1) * BOX_SIZE); i++)
-		 {
-			 if (i == idx)
-				 continue;
-			 updateKBest<3>(point, points[indices[i]], best);
-		 }
-	 }
-	 dists[indices[idx]] = (best[0] + best[1] + best[2]) / 3.0f;
- }
+	float3 init = { 0, 0, 0 }, minn, maxx;
  
- void SimpleKNN::knn(int P, float3* points, float* meanDists)
- {
-	 float3* result;
-	 cudaMalloc(&result, sizeof(float3));
-	 size_t temp_storage_bytes;
+	cub::DeviceReduce::Reduce(nullptr, temp_storage_bytes, points, result, P, CustomMin(), init);
+	thrust::device_vector<char> temp_storage(temp_storage_bytes);
  
-	 float3 init = { 0, 0, 0 }, minn, maxx;
+	cub::DeviceReduce::Reduce(temp_storage.data().get(), temp_storage_bytes, points, result, P, CustomMin(), init);
+	cudaMemcpy(&minn, result, sizeof(float3), cudaMemcpyDeviceToHost);
  
-	 cub::DeviceReduce::Reduce(nullptr, temp_storage_bytes, points, result, P, CustomMin(), init);
-	 thrust::device_vector<char> temp_storage(temp_storage_bytes);
+	cub::DeviceReduce::Reduce(temp_storage.data().get(), temp_storage_bytes, points, result, P, CustomMax(), init);
+	cudaMemcpy(&maxx, result, sizeof(float3), cudaMemcpyDeviceToHost);
  
-	 cub::DeviceReduce::Reduce(temp_storage.data().get(), temp_storage_bytes, points, result, P, CustomMin(), init);
-	 cudaMemcpy(&minn, result, sizeof(float3), cudaMemcpyDeviceToHost);
+	thrust::device_vector<uint32_t> morton(P);
+	thrust::device_vector<uint32_t> morton_sorted(P);
+	coord2Morton << <(P + 255) / 256, 256 >> > (P, points, minn, maxx, morton.data().get());
  
-	 cub::DeviceReduce::Reduce(temp_storage.data().get(), temp_storage_bytes, points, result, P, CustomMax(), init);
-	 cudaMemcpy(&maxx, result, sizeof(float3), cudaMemcpyDeviceToHost);
+	thrust::device_vector<uint32_t> indices(P);
+	thrust::sequence(indices.begin(), indices.end());
+	thrust::device_vector<uint32_t> indices_sorted(P);
  
-	 thrust::device_vector<uint32_t> morton(P);
-	 thrust::device_vector<uint32_t> morton_sorted(P);
-	 coord2Morton << <(P + 255) / 256, 256 >> > (P, points, minn, maxx, morton.data().get());
+	cub::DeviceRadixSort::SortPairs(nullptr, temp_storage_bytes, morton.data().get(), morton_sorted.data().get(), indices.data().get(), indices_sorted.data().get(), P);
+	temp_storage.resize(temp_storage_bytes);
  
-	 thrust::device_vector<uint32_t> indices(P);
-	 thrust::sequence(indices.begin(), indices.end());
-	 thrust::device_vector<uint32_t> indices_sorted(P);
+	cub::DeviceRadixSort::SortPairs(temp_storage.data().get(), temp_storage_bytes, morton.data().get(), morton_sorted.data().get(), indices.data().get(), indices_sorted.data().get(), P);
  
-	 cub::DeviceRadixSort::SortPairs(nullptr, temp_storage_bytes, morton.data().get(), morton_sorted.data().get(), indices.data().get(), indices_sorted.data().get(), P);
-	 temp_storage.resize(temp_storage_bytes);
+	uint32_t num_boxes = (P + BOX_SIZE - 1) / BOX_SIZE; 
+	thrust::device_vector<MinMax> boxes(num_boxes);
+	boxMinMax << <num_boxes, BOX_SIZE >> > (P, points, indices_sorted.data().get(), boxes.data().get());
+	boxMeanDist << <num_boxes, BOX_SIZE >> > (P, points, indices_sorted.data().get(), boxes.data().get(), meanDists);
  
-	 cub::DeviceRadixSort::SortPairs(temp_storage.data().get(), temp_storage_bytes, morton.data().get(), morton_sorted.data().get(), indices.data().get(), indices_sorted.data().get(), P);
- 
-	 uint32_t num_boxes = (P + BOX_SIZE - 1) / BOX_SIZE; 
-	 thrust::device_vector<MinMax> boxes(num_boxes);
-	 boxMinMax << <num_boxes, BOX_SIZE >> > (P, points, indices_sorted.data().get(), boxes.data().get());
-	 boxMeanDist << <num_boxes, BOX_SIZE >> > (P, points, indices_sorted.data().get(), boxes.data().get(), meanDists);
- 
-	 cudaFree(result);
- }
- 
- 
- __global__ void boxKNNindeces(uint32_t P, float3* points, uint32_t* indices, MinMax* boxes, float* dists, int* knn_indices)
- {
-	 int idx = cg::this_grid().thread_rank();
-	 if (idx >= P)
-		 return;
- 
-	 // printf("hhh1\n");
-	 float3 point = points[indices[idx]];
- 
-	 float best[K_MAX] = { FLT_MAX, FLT_MAX, FLT_MAX };
-	 uint32_t knn_indice[K_MAX];
- 
-	 for (int i = max(0, idx - K_MAX); i <= min(P - 1, idx + K_MAX); i++)
-	 {
-		 if (i == idx)
-			 continue;
-		 updateKBestIndices<K_MAX>(point, points[indices[i]], indices[i], best, knn_indice);
-	 }
- 
-	 float reject = best[K_MAX - 1];
- 
-	 for(int i = 0; i < K_MAX; i++)
-		 best[i] = FLT_MAX;
- 
-	 for (int b = 0; b < (P + BOX_SIZE - 1) / BOX_SIZE; b++)
-	 {
-		 MinMax box = boxes[b];
-		 float dist = distBoxPoint(box, point);
-		 if (dist > reject || dist > best[K_MAX - 1])
-			 continue;
- 
-		 for (int i = b * BOX_SIZE; i < min(P, (b + 1) * BOX_SIZE); i++)
-		 {
-			 if (i == idx)
-				 continue;
-			 updateKBestIndices<K_MAX>(point, points[indices[i]], indices[i], best, knn_indice);
-		 }
-	 }
-	 // printf("hhh\n");
-	 dists[indices[idx]] = 0.0f;
-	 for(int i = 0; i < K_MAX; i++){
-		 dists[indices[idx]] += best[i];
-		 knn_indices[indices[idx] * K_MAX + i] = (int)knn_indice[i];
-		 // knn_indices[indices[idx] * K_MAX + i] = 1;
-		 // printf("%d\n",(int)knn_indice[i]);
- 
-	 }
- 
-	 dists[indices[idx]] /= (float)K_MAX;
- }
+	cudaFree(result);
+}
  
  
+__global__ void SelfKnn(uint32_t P, float3* points, uint32_t* indices, MinMax* boxes, float* dists, int* knn_indices)
+{
+	int idx = cg::this_grid().thread_rank();
+	if (idx >= P)
+		return;
+	// printf("hhh1\n");
+	float3 point = points[indices[idx]];
  
- void SimpleKNN::knn_with_indices(int P, float3* points, float* meanDists, int* knn_indices)
- {
-	 float3* result;
-	 cudaMalloc(&result, sizeof(float3));
-	 size_t temp_storage_bytes;
+	float best[K_MAX];
+	for(int i = 0; i < K_MAX; i++)
+		best[i] = FLT_MAX;
+	uint32_t knn_indice[K_MAX];
  
-	 float3 init = { 0, 0, 0 }, minn, maxx;
+	for (int i = max(0, idx - K_MAX); i <= min(P - 1, idx + K_MAX); i++)
+	{
+		if (i == idx)
+			continue;
+		updateKBestIndices<K_MAX>(point, points[indices[i]], indices[i], best, knn_indice);
+	}
  
-	 cub::DeviceReduce::Reduce(nullptr, temp_storage_bytes, points, result, P, CustomMin(), init);
-	 thrust::device_vector<char> temp_storage(temp_storage_bytes);
+	float reject = best[K_MAX - 1];
  
-	 cub::DeviceReduce::Reduce(temp_storage.data().get(), temp_storage_bytes, points, result, P, CustomMin(), init);
-	 cudaMemcpy(&minn, result, sizeof(float3), cudaMemcpyDeviceToHost);
+	for(int i = 0; i < K_MAX; i++)
+		best[i] = FLT_MAX;
  
-	 cub::DeviceReduce::Reduce(temp_storage.data().get(), temp_storage_bytes, points, result, P, CustomMax(), init);
-	 cudaMemcpy(&maxx, result, sizeof(float3), cudaMemcpyDeviceToHost);
+	for (int b = 0; b < (P + BOX_SIZE - 1) / BOX_SIZE; b++)
+	{
+		MinMax box = boxes[b];
+		float dist = distBoxPoint(box, point);
+		if (dist > reject || dist > best[K_MAX - 1])
+			continue;
  
-	 thrust::device_vector<uint32_t> morton(P);
-	 thrust::device_vector<uint32_t> morton_sorted(P);
-	 coord2Morton << <(P + 255) / 256, 256 >> > (P, points, minn, maxx, morton.data().get());
+		for (int i = b * BOX_SIZE; i < min(P, (b + 1) * BOX_SIZE); i++)
+		{
+			if (i == idx)
+				continue;
+			updateKBestIndices<K_MAX>(point, points[indices[i]], indices[i], best, knn_indice);
+		}
+	}
+	// printf("hhh\n");
+	dists[indices[idx]] = 0.0f;
+	for(int i = 0; i < K_MAX; i++){
+		dists[indices[idx]] += best[i];
+		knn_indices[indices[idx] * K_MAX + i] = (int)knn_indice[i];
+		// knn_indices[indices[idx] * K_MAX + i] = 1;
+		// printf("%d\n",(int)knn_indice[i]);
  
-	 thrust::device_vector<uint32_t> indices(P);
-	 thrust::sequence(indices.begin(), indices.end());
-	 thrust::device_vector<uint32_t> indices_sorted(P);
+	}
  
-	 cub::DeviceRadixSort::SortPairs(nullptr, temp_storage_bytes, morton.data().get(), morton_sorted.data().get(), indices.data().get(), indices_sorted.data().get(), P);
-	 temp_storage.resize(temp_storage_bytes);
+	dists[indices[idx]] /= (float)K_MAX;
+}
+
+
+__global__ void CrossKnn(uint32_t P1, uint32_t P2, uint32_t P, float3* points_all, uint32_t* indices, MinMax* boxes, float* dists, int* knn_indices)
+{
+	int idx = cg::this_grid().thread_rank();
+	if (idx >= P)
+		return;
+	// printf("hhhhh");
+	uint32_t offset = 2 << 30;
+	if (!(indices[idx] & offset)) // if this point is not in A, skip.
+		return;
+	// printf("hhh\n");
+	uint32_t idx_A = indices[idx] - offset;
+	// printf("idx_A:%u",idx_A);
+	float3 point = points_all[idx_A]; // point in A.
+	float best[K_MAX];
+	for(int i = 0; i < K_MAX; i++)
+		best[i] = FLT_MAX;
+
+	uint32_t knn_indice[K_MAX];
+
+	// find a good initial value.
+	int i = max(-1, idx - K_MAX - 1);
+	int init_count = 0;
+	while (true){
+		i++;
+		if (i > P - 1)
+			break;
+		if (i == idx) // this point itself
+			continue;
+		if (indices[i] & offset) // point in A
+			continue;
+		updateKBestIndices<K_MAX>(point, points_all[indices[i]], indices[i], best, knn_indice);
+		init_count++;
+		if (init_count >= K_MAX)
+			break;
+	}
+
+	float reject = best[K_MAX - 1]; 
  
-	 cub::DeviceRadixSort::SortPairs(temp_storage.data().get(), temp_storage_bytes, morton.data().get(), morton_sorted.data().get(), indices.data().get(), indices_sorted.data().get(), P);
+	for(int i = 0; i < K_MAX; i++)
+		best[i] = FLT_MAX;
  
-	 uint32_t num_boxes = (P + BOX_SIZE - 1) / BOX_SIZE; 
-	 thrust::device_vector<MinMax> boxes(num_boxes);
-	 boxMinMax << <num_boxes, BOX_SIZE >> > (P, points, indices_sorted.data().get(), boxes.data().get());
-	 boxKNNindeces << <num_boxes, BOX_SIZE >> > (P, points, indices_sorted.data().get(), boxes.data().get(), meanDists, knn_indices);
+	for (int b = 0; b < (P + BOX_SIZE - 1) / BOX_SIZE; b++)
+	{
+		MinMax box = boxes[b];
+		float dist = distBoxPoint(box, point);
+		if (dist > reject || dist > best[K_MAX - 1])
+			continue;
  
-	 cudaFree(result);
- }
+		for (int i = b * BOX_SIZE; i < min(P, (b + 1) * BOX_SIZE); i++)
+		{
+			if (i == idx)
+				continue;
+			if (indices[i] & offset) // point in A
+				continue;
+			updateKBestIndices<K_MAX>(point, points_all[indices[i]], indices[i], best, knn_indice);
+		}
+	}
+
+	for(int i = 0; i < K_MAX; i++){
+		dists[(idx_A - P2) * K_MAX + i] = best[i];
+		knn_indices[(idx_A - P2) * K_MAX + i] = (int)knn_indice[i];
+	}
+}
+ 
+void SimpleKNN::knn_with_indices(int P, float3* points, float* meanDists, int* knn_indices)
+{
+	float3* result;
+	cudaMalloc(&result, sizeof(float3));
+	size_t temp_storage_bytes;
+ 
+	float3 init = { 0, 0, 0 }, minn, maxx;
+ 
+	cub::DeviceReduce::Reduce(nullptr, temp_storage_bytes, points, result, P, CustomMin(), init);
+	thrust::device_vector<char> temp_storage(temp_storage_bytes);
+
+	cub::DeviceReduce::Reduce(temp_storage.data().get(), temp_storage_bytes, points, result, P, CustomMin(), init);
+	cudaMemcpy(&minn, result, sizeof(float3), cudaMemcpyDeviceToHost);
+
+	cub::DeviceReduce::Reduce(temp_storage.data().get(), temp_storage_bytes, points, result, P, CustomMax(), init);
+	cudaMemcpy(&maxx, result, sizeof(float3), cudaMemcpyDeviceToHost);
+
+	thrust::device_vector<uint32_t> morton(P);
+	thrust::device_vector<uint32_t> morton_sorted(P);
+	coord2Morton << <(P + 255) / 256, 256 >> > (P, points, minn, maxx, morton.data().get());
+
+	thrust::device_vector<uint32_t> indices(P);
+	thrust::sequence(indices.begin(), indices.end());
+	thrust::device_vector<uint32_t> indices_sorted(P);
+
+	cub::DeviceRadixSort::SortPairs(nullptr, temp_storage_bytes, morton.data().get(), morton_sorted.data().get(), indices.data().get(), indices_sorted.data().get(), P);
+	temp_storage.resize(temp_storage_bytes);
+
+	cub::DeviceRadixSort::SortPairs(temp_storage.data().get(), temp_storage_bytes, morton.data().get(), morton_sorted.data().get(), indices.data().get(), indices_sorted.data().get(), P);
+ 
+	uint32_t num_boxes = (P + BOX_SIZE - 1) / BOX_SIZE; 
+	thrust::device_vector<MinMax> boxes(num_boxes);
+	boxMinMax << <num_boxes, BOX_SIZE >> > (P, points, indices_sorted.data().get(), boxes.data().get());
+	SelfKnn << <num_boxes, BOX_SIZE >> > (P, points, indices_sorted.data().get(), boxes.data().get(), meanDists, knn_indices);
+ 
+	cudaFree(result);
+}
+
+
+void SimpleKNN::knn_points(int P1, int P2, float3* points_all, int* knn_indices, float* dists)
+{ // 输入两个点云A，B，输出A中每个点在B中的knn子集，不包含A中的点
+	float3* result;
+	cudaMalloc(&result, sizeof(float3));
+	size_t temp_storage_bytes;
+
+	float3 init = { 0, 0, 0 }, minn, maxx;
+	uint32_t P = P1 + P2;
+	// printf("%u\n",P);
+    uint32_t flag_value = 1 << 31; // 2^30, to distinct A and B.
+
+	// P_1
+	cub::DeviceReduce::Reduce(nullptr, temp_storage_bytes, points_all, result, P, CustomMin(), init);
+	thrust::device_vector<char> temp_storage(temp_storage_bytes);
+	// get box_min and box_max
+	cub::DeviceReduce::Reduce(temp_storage.data().get(), temp_storage_bytes, points_all, result, P, CustomMin(), init);
+	cudaMemcpy(&minn, result, sizeof(float3), cudaMemcpyDeviceToHost);
+	cub::DeviceReduce::Reduce(temp_storage.data().get(), temp_storage_bytes, points_all, result, P, CustomMax(), init);
+	cudaMemcpy(&maxx, result, sizeof(float3), cudaMemcpyDeviceToHost);
+
+	thrust::device_vector<uint32_t> morton(P);
+	thrust::device_vector<uint32_t> morton_sorted(P);
+	coord2Morton << <(P + 255) / 256, 256 >> > (P, points_all, minn, maxx, morton.data().get());
+
+	// P_2 两个点云不能一起做基数排序，否则会混淆，或者可以做，但需要做flag，例如把uint32_t第32位令为1，表示A中的点 (uint32_t)2 << 30;
+	// printf("morton\n");
+    thrust::device_vector<uint32_t> indices_1(P1); 
+    thrust::device_vector<uint32_t> indices_2(P2); 
+
+    // 使用 thrust::sequence 填充 indices_1，起始值为 2^31，结束值为 2^31 + P1
+    thrust::sequence(indices_1.begin(), indices_1.end(), flag_value + P2);
+    thrust::sequence(indices_2.begin(), indices_2.end());
+
+    thrust::device_vector<uint32_t> indices(P);
+	thrust::device_vector<uint32_t> indices_sorted(P);
+
+    thrust::copy(indices_2.begin(), indices_2.end(), indices.begin());
+    thrust::copy(indices_1.begin(), indices_1.end(), indices.begin() + P2);
+
+
+	cub::DeviceRadixSort::SortPairs(nullptr, temp_storage_bytes, morton.data().get(), morton_sorted.data().get(), indices.data().get(), indices_sorted.data().get(), P);
+	temp_storage.resize(temp_storage_bytes);
+	cub::DeviceRadixSort::SortPairs(temp_storage.data().get(), temp_storage_bytes, morton.data().get(), morton_sorted.data().get(), indices.data().get(), indices_sorted.data().get(), P);
+	// printf("sort\n");
+	uint32_t num_boxes = (P + BOX_SIZE - 1) / BOX_SIZE; // 512
+	thrust::device_vector<MinMax> boxes(num_boxes);
+	boxMinMax << <num_boxes, BOX_SIZE >> > (P, points_all, indices_sorted.data().get(), boxes.data().get());
+	// printf("box\n");
+	CrossKnn << <num_boxes, BOX_SIZE >> > (P1, P2, P, points_all, indices_sorted.data().get(), boxes.data().get(), dists, knn_indices);
+
+	cudaFree(result);
+}

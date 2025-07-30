@@ -58,7 +58,8 @@ if __name__ == "__main__":
     test_dir = os.path.join(config.model_path, 'test', "ours_{}".format(scene.loaded_iter))
     gaussExtractor = GaussianExtractor(gaussians, render, config.pipeline, config.optimizer, bg_color=bg_color)    
     
-    if not config.skip_train:
+    # if not config.skip_train:
+    if True:
         print("export training images ...")
         os.makedirs(train_dir, exist_ok=True)
         gaussExtractor.reconstruction(scene.getTrainCameras())
@@ -66,6 +67,7 @@ if __name__ == "__main__":
         
     
     if (not config.skip_test) and (len(scene.getTestCameras()) > 0):
+    # if False:
         print("export rendered testing images ...")
         os.makedirs(test_dir, exist_ok=True)
         gaussExtractor.reconstruction(scene.getTestCameras())
@@ -73,10 +75,11 @@ if __name__ == "__main__":
     
     
     if config.render_path:
+    # if True:
         print("render videos ...")
         traj_dir = os.path.join(config.model_path, 'traj', "ours_{}".format(scene.loaded_iter))
         os.makedirs(traj_dir, exist_ok=True)
-        n_fames = 600
+        n_fames = 240
         cam_traj = generate_path(scene.getTrainCameras(), n_frames=n_fames)
         gaussExtractor.reconstruction(cam_traj)
         gaussExtractor.export_image(traj_dir)
@@ -86,6 +89,7 @@ if __name__ == "__main__":
                     num_frames=n_fames)
 
     if not config.skip_mesh:
+    # if True:
         print("export mesh ...")
         os.makedirs(train_dir, exist_ok=True)
         # set the active_sh to 0 to export only diffuse texture
@@ -105,6 +109,7 @@ if __name__ == "__main__":
         o3d.io.write_triangle_mesh(os.path.join(train_dir, name), mesh)
         print("mesh saved at {}".format(os.path.join(train_dir, name)))
         # post-process the mesh and save, saving the largest N clusters
-        mesh_post = post_process_mesh(mesh, cluster_to_keep=config.pipeline.num_cluster)
+        # mesh_post = post_process_mesh(mesh, cluster_to_keep=config.pipeline.num_cluster)
+        mesh_post = post_process_mesh(mesh, cluster_to_keep=10)
         o3d.io.write_triangle_mesh(os.path.join(train_dir, name.replace('.ply', '_post.ply')), mesh_post)
-        print("mesh post processed saved at {}".format(os.path.join(train_dir, name.replace('.ply', '_post.ply'))))
+        print("mesh post processed saved at {}".format(os.path.join(train_dir, name.replace('.ply', f'_post{gaussExtractor.gaussians.get_xyz.shape[0]}.ply'))))

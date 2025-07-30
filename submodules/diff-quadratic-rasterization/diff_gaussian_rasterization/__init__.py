@@ -80,6 +80,8 @@ class _RasterizeGaussians(torch.autograd.Function):
             raster_settings.campos,
             raster_settings.cam_intr, # cpu
             raster_settings.prefiltered,
+            raster_settings.return_depth,
+            raster_settings.return_normal,
             raster_settings.debug
         )
 
@@ -135,6 +137,8 @@ class _RasterizeGaussians(torch.autograd.Function):
                 num_rendered,
                 binningBuffer,
                 imgBuffer,
+                raster_settings.return_depth,
+                raster_settings.return_normal,
                 raster_settings.debug,
                 raster_settings.stop_z_gradient,
                 raster_settings.reciprocal_z)
@@ -184,6 +188,9 @@ class GaussianRasterizationSettings(NamedTuple):
     cam_intr : torch.Tensor
     stop_z_gradient : bool
     reciprocal_z : bool
+    return_depth : bool
+    return_normal : bool
+    
 class GaussianRasterizer(nn.Module):
     def __init__(self, raster_settings):
         super().__init__()

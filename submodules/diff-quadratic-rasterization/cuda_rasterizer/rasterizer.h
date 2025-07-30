@@ -52,6 +52,8 @@ namespace CudaRasterizer
 			const float kernel_size,
 			const float* subpixel_offset,
 			const bool prefiltered,
+			const bool return_depth,
+			const bool return_normal,
 			float* out_color,
 			int* n_touched,
 			int* radii = nullptr,
@@ -92,6 +94,8 @@ namespace CudaRasterizer
 			float* dL_dscale,
 			float* dL_drot,
 			float* dL_dview2gaussian,
+			const bool return_depth,
+			const bool return_normal,
 			bool debug);
 
 	};

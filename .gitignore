@@ -11,6 +11,8 @@ __pycache__
 *.out
 eval
 *.npz
+*.png
 **/tmp
-demo
+demo*
 ./*.pyc
+**.dump

@@ -5,7 +5,7 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - numpy=2.0.2
+  - numpy=1.26.4
   - ffmpeg=4.2.2
   - pillow=10.4.0
   - pip=23.3.1
@@ -22,7 +22,7 @@ dependencies:
     - scikit-learn==1.5.1
     - tqdm==4.66.4
     - trimesh==4.4.3
-    - submodules/diff-gaussian-rasterization
+    - submodules/diff-quadratic-rasterization
     - submodules/simple-knn
     - plyfile
     - opencv-python

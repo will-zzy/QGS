@@ -187,8 +187,6 @@ __device__ void computeView2Gaussian_backward(
 	// Gaussian to view transform
 	glm::mat4 G2V = W2V * G2W;
  
-	// inverse of Gaussian to view transform
-	glm::mat4 V2G = glm::inverse(G2V);
  
 	// compute the gradient here
 	// G2V = [R, t], V2G = inverse(G2V) = [R^T, -R^T * t]
@@ -221,7 +219,7 @@ __device__ void computeView2Gaussian_backward(
 		 -dL_dV2G_t.y * G2V_t.x, -dL_dV2G_t.y * G2V_t.y, -dL_dV2G_t.y * G2V_t.z,
 		 -dL_dV2G_t.z * G2V_t.x, -dL_dV2G_t.z * G2V_t.y, -dL_dV2G_t.z * G2V_t.z
 	);
- 
+
 	glm::mat3 dL_dG2V_R = dL_dV2G_R_t + dL_dG2V_R_from_t;
 	glm::vec3 dL_dG2V_t = -dL_dV2G_t * G2V_R_t;
 
@@ -266,7 +264,7 @@ __device__ void computeView2Gaussian_backward(
 	dL_dmean->x = dL_dG2W_t.x;
 	dL_dmean->y = dL_dG2W_t.y;
 	dL_dmean->z = dL_dG2W_t.z;
- 
+
 	glm::mat3 dL_dMt = dL_dR;
  
 	// // Gradients of loss w.r.t. normalized quaternion
@@ -316,7 +314,6 @@ __global__ void preprocessCUDA(
 	
 	// compute the gradient of view2gaussian
 	computeView2Gaussian_backward(focal_x, focal_y, idx, means[idx], rotations[idx], viewmatrix, view2gaussian + 16 * idx, dL_dview2gaussian + 16 * idx, W, H, reciprocal_z, dL_dmeans, dL_drot, dL_dmean2D[idx]);
- 
 	// Compute gradient updates due to computing colors from SHs
 	if (shs)
 		 computeColorFromSH(idx, D, M, (glm::vec3*)means, *campos, shs, clamped, (glm::vec3*)dL_dcolor, (glm::vec3*)dL_dmeans, (glm::vec3*)dL_dsh);
@@ -346,6 +343,8 @@ renderCUDA(
 	const float* __restrict__ final_Ts,
 	const uint32_t* __restrict__ n_contrib,
 	const float* __restrict__ dL_dpixels,
+	const bool return_depth,
+	const bool return_normal,
 	float* __restrict__ dL_dopacity,
 	float* __restrict__ dL_dcolors,
 	float* __restrict__ dL_dscales,
@@ -407,8 +406,10 @@ renderCUDA(
 	float dL_dcurv = 0.0f;
 	float dL_dreg_curv = 0.0f;
 	if (inside){
-		for (int i = 0; i < C; i++)
+		for (int i = 0; i < C; i++){
 			dL_dpixel[i] = dL_dpixels[i * H * W + pix_id];
+		}
+		// printf("dL_dpixel of pixel %d,%d is :%.12f,%.12f,%.12f\n",pix.x, pix.y, dL_dpixel[0],dL_dpixel[1],dL_dpixel[2]);
 			
 		for (int i = 0; i < 3; i++)
 			dL_dnormal2D[i] = dL_dpixels[(C+i) * H * W + pix_id];
@@ -508,11 +509,14 @@ renderCUDA(
 			float r0_2 = 0.0f;
 			bool intersect = false;
 			float sign = -1.0f;
+			float px_2 = 0.0f;
+			float py_2 = 0.0f;
 			int AA_sign = copysign(1, AA);
+			#pragma unroll
 			for(int i = -1; i < 2; i += 2){
 #if	QUADRATIC_APPROXIMATION
-				if (abs(AA) < 1e-3)
-					root = - CC / BB;
+				if (abs(AA) < 1e-6)
+					root = __fdividef(-CC, BB);
 				else
 #endif
 				{
@@ -520,14 +524,24 @@ renderCUDA(
 					root = -BB * r2AA + sign * discriminant_sq_r2AA;
 				}
 
-				p = {cam_pos_local.x + root * cam_ray_local.x, cam_pos_local.y + root * cam_ray_local.y};
-				p_norm_2 = p.x * p.x + p.y * p.y + 1e-7;
+				// p = {cam_pos_local.x + root * cam_ray_local.x, cam_pos_local.y + root * cam_ray_local.y};
+				p = {
+					__fmaf_rn(root, cam_ray_local.x, cam_pos_local.x),
+					__fmaf_rn(root, cam_ray_local.y, cam_pos_local.y)
+				};
+				// printf("p.x,p.y %d,%d is :%.12f,%.12f\n",pix.x, pix.y, p.x, p.y);
+				// p_norm_2 = p.x * p.x + p.y * p.y + 1e-7;
+				px_2 = p.x * p.x;
+				py_2 = p.y * p.y;
+				
+				p_norm_2 = px_2 + py_2 + 1e-7;
 				p_norm = __fsqrt_rn(p_norm_2);
-				cos2_sin2 = {p.x * p.x / p_norm_2, p.y * p.y / p_norm_2};
+				cos2_sin2 = {__fdividef(px_2, p_norm_2), __fdividef(py_2, p_norm_2)};
 				a = GetParabolaA(cos2_sin2, rscale_sign_j, scale_j);
 				s = QuadraticCurveGeodesicDistanceOriginal(p_norm, a);
 				s_2 = s * s;
-				r0_2 = 1 / (cos2_sin2.x * rscale_o_j.x + cos2_sin2.y * rscale_o_j.y);
+				// r0_2 = 1 / (cos2_sin2.x * rscale_o_j.x + cos2_sin2.y * rscale_o_j.y);
+				r0_2 = __fdividef(1.0f, (cos2_sin2.x * rscale_o_j.x + cos2_sin2.y * rscale_o_j.y));
 
 				if (s_2 <= r0_2 * sigma * sigma){
 					intersect = true;
@@ -538,29 +552,37 @@ renderCUDA(
 			if (!intersect)
 				continue;
  
-			float power = -s_2 / (2 * r0_2);
+			// printf("a %d,%d is :%.12f\n",pix.x, pix.y, a);
+			// printf("s %d,%d is :%.12f\n",pix.x, pix.y, s);
+			// printf("r0_2 %d,%d is :%.12f\n",pix.x, pix.y, r0_2);
+			// float power = -s_2 / (2 * r0_2);
+			float power = __fdividef(-s_2, (2.0f * r0_2));
 			float depth = root;
 
  
-			const float G = exp(power);
+			// const float G = exp(power);
+			const float G = __expf(power);
+			// printf("Gaussians of pixel %d,%d is :%.12f\n",pix.x, pix.y, G);
 			const float alpha = min(0.99f, rscale_o_j.w * G);
 
 			if (alpha < 1.0f / 255.0f)
 				continue;
 
-			T = T / (1.f - alpha);
-			const float dchannel_dcolor = alpha * T;
+			// T = T / (1.f - alpha);
+			T = __fdividef(T, 1.f - alpha);
+			const float weight = alpha * T;
  
 			// Propagate gradients to per-Gaussian colors and keep
 			// gradients w.r.t. alpha (blending factor for a Gaussian/pixel
 			// pair).
 			float dL_dalpha = 0.0f;
 			const int global_id = collected_id[j];
+			const float one_minus_last_alpha = 1.f - last_alpha;
 			for (int ch = 0; ch < C; ch++)
 			{
 				const float c = collected_colors[ch * BLOCK_SIZE + j];
 				// Update last color (to be used in the next iteration)
-				accum_rec[ch] = last_alpha * last_color[ch] + (1.f - last_alpha) * accum_rec[ch];
+				accum_rec[ch] = last_alpha * last_color[ch] + one_minus_last_alpha * accum_rec[ch];
 				last_color[ch] = c;
  
 				const float dL_dchannel = dL_dpixel[ch];
@@ -568,34 +590,40 @@ renderCUDA(
 				// Update the gradients w.r.t. color of the Gaussian. 
 				// Atomic, since this pixel is just one of potentially
 				// many that were affected by this Gaussian.
-				atomicAdd(&(dL_dcolors[global_id * C + ch]), dchannel_dcolor * dL_dchannel);
+				atomicAdd(&(dL_dcolors[global_id * C + ch]), weight * dL_dchannel);
 			}
+			// printf("dL_dcolors of pixel %d,%d is :%.12f,%.12f,%.12f\n",pix.x, pix.y, dL_dcolors[global_id * C + 0],dL_dcolors[global_id * C + 1],dL_dcolors[global_id * C + 2]);
+			// printf("dL_dpixel of pixel %d,%d is :%.12f,%.12f,%.12f\n",pix.x, pix.y, dL_dpixel[0],dL_dpixel[1],dL_dpixel[2]);
 			
+			
+			float dL_dweight = 0.0f;
+#if !DETACH_CURVATURE
 			float coeff_1 = scale_j.z * rscale_sign_j.x;
 			float coeff_2 = scale_j.z * rscale_sign_j.y;
-			float a2u2 = coeff_1 * coeff_1 * p.x * p.x;
-			float b2v2 = coeff_2 * coeff_2 * p.y * p.y;
+			float a2u2 = coeff_1 * coeff_1 * px_2;
+			float b2v2 = coeff_2 * coeff_2 * py_2;
 			float den = 1 + 4 * (a2u2 + b2v2);
-			// gaussian curvature
-			float curvature = 4 * coeff_1 * coeff_2 * __frcp_rn(den * den);
 
+			// gaussian curvature
+			// float curvature = 4 * coeff_1 * coeff_2 * __frcp_rn(den * den);
+			float curvature = __fdividef(4 * coeff_1 * coeff_2, den * den);
+			
 			// curvature distortion to weight and curvature
-			float dL_dweight = 0.0f;
 			dL_dweight += (final_C2 + curvature * curvature * final_A - 2 * curvature * final_C) * dL_dreg_curv;
 			float dL_dcurvature = 2.0f * (T * alpha) * (curvature * final_A - final_C) * dL_dreg_curv;
 
 			const float rden_3 = __frcp_rn(den * den * den);
-			const float dL_dcoeff1 = ((curvature / coeff_1) - (64 * a2u2 * coeff_2) * rden_3) * dL_dcurvature;
-			const float dL_dcoeff2 = ((curvature / coeff_2) - (64 * b2v2 * coeff_1) * rden_3) * dL_dcurvature;
+			const float dL_dcoeff1 = (__fdividef(curvature, coeff_1) - (64 * a2u2 * coeff_2) * rden_3) * dL_dcurvature;
+			const float dL_dcoeff2 = (__fdividef(curvature, coeff_2) - (64 * b2v2 * coeff_1) * rden_3) * dL_dcurvature;
 			
 			// curvature map to alpha 
-			accum_curv_rec = last_alpha * last_curv + (1.f - last_alpha) * accum_curv_rec;
+			accum_curv_rec = last_alpha * last_curv + one_minus_last_alpha * accum_curv_rec;
 			last_curv = curvature;
 			dL_dalpha += (curvature - accum_curv_rec) * dL_dcurv;
 			
 			// curvature map to curvature
-			dL_dcurvature += alpha * T * dL_dcurv;
-
+			dL_dcurvature += weight * dL_dcurv;
+#endif
 			// depth distortion
 			// distortion to weight, alpha
 			const float max_t = depth;
@@ -613,43 +641,67 @@ renderCUDA(
 			float dL_dmax_t = 2.0f * (T * alpha) * (mapped_max_t * final_A - final_D) * dL_dreg * dmax_t_dd;
 			
 			// depth map to alpha
-			accum_depth_rec = last_alpha * last_depth + (1.f - last_alpha) * accum_depth_rec;
+			accum_depth_rec = last_alpha * last_depth + one_minus_last_alpha * accum_depth_rec;
 			last_depth = max_t;
-			dL_dalpha += (max_t - accum_depth_rec) * dL_ddepth;
+			// dL_dalpha += (max_t - accum_depth_rec) * dL_ddepth;
+			dL_dalpha = __fmaf_rn((max_t - accum_depth_rec), dL_ddepth, dL_dalpha);
 
 			// alpha map to alpha
-			accum_alpha_rec = last_alpha * 1.0 + (1.f - last_alpha) * accum_alpha_rec;
-			dL_dalpha += (1 - accum_alpha_rec) * dL_daccum;
+			// accum_alpha_rec = last_alpha * 1.0 + one_minus_last_alpha * accum_alpha_rec;
+			accum_alpha_rec = __fmaf_rn(one_minus_last_alpha, accum_alpha_rec, last_alpha * 1.f);
+			// dL_dalpha += (1 - accum_alpha_rec) * dL_daccum;
+			dL_dalpha = __fmaf_rn((1.f - accum_alpha_rec), dL_daccum, dL_dalpha);
 
 			// normal regularzation
 			float3 point_normal_unnormalized = {2 * p.x * rscale_sign_j.x, 2 * p.y * rscale_sign_j.y, -rscale_sign_j.z};
-			float cos_ray_normal = point_normal_unnormalized.x*cam_ray_local.x + point_normal_unnormalized.y*cam_ray_local.y + point_normal_unnormalized.z*cam_ray_local.z;
+			float cos_ray_normal = point_normal_unnormalized.x * cam_ray_local.x + 
+								   point_normal_unnormalized.y * cam_ray_local.y + 
+								   point_normal_unnormalized.z * cam_ray_local.z;
 			float sign_normal = copysign(1.0f, cos_ray_normal);
 			if (sign_normal > 0){
-				point_normal_unnormalized.x *= -1.0f;
-				point_normal_unnormalized.y *= -1.0f;
-				point_normal_unnormalized.z *= -1.0f;
+				point_normal_unnormalized.x = -point_normal_unnormalized.x;
+				point_normal_unnormalized.y = -point_normal_unnormalized.y;
+				point_normal_unnormalized.z = -point_normal_unnormalized.z;
 			}
-			float length = sqrt(point_normal_unnormalized.x * point_normal_unnormalized.x + point_normal_unnormalized.y * point_normal_unnormalized.y + point_normal_unnormalized.z * point_normal_unnormalized.z + 1e-7);
-			float3 point_normal = { point_normal_unnormalized.x / length, point_normal_unnormalized.y / length, point_normal_unnormalized.z / length };
-			
-			const float3 normal = { // normal in view space
-				view2gaussian_j[0] * point_normal.x + view2gaussian_j[1] * point_normal.y + view2gaussian_j[2] * point_normal.z,
-				view2gaussian_j[4] * point_normal.x + view2gaussian_j[5] * point_normal.y + view2gaussian_j[6] * point_normal.z,
-				view2gaussian_j[8] * point_normal.x + view2gaussian_j[9] * point_normal.y + view2gaussian_j[10] * point_normal.z,
-			};
 
+			
+			// float length = sqrt(point_normal_unnormalized.x * point_normal_unnormalized.x + point_normal_unnormalized.y * point_normal_unnormalized.y + point_normal_unnormalized.z * point_normal_unnormalized.z + 1e-7);
+			float sum_sq = __fmaf_rn(point_normal_unnormalized.x, point_normal_unnormalized.x,
+						   __fmaf_rn(point_normal_unnormalized.y, point_normal_unnormalized.y,
+						   __fmaf_rn(point_normal_unnormalized.z, point_normal_unnormalized.z, 1e-7f)));
+ 			float length = __fsqrt_rn(sum_sq);
+			const float rlength = __frcp_rn(length);
+			float3 point_normal = { point_normal_unnormalized.x * rlength, 
+									point_normal_unnormalized.y * rlength, 
+									point_normal_unnormalized.z * rlength};
+			// const float3 normal = { // normal in view space
+			// 	view2gaussian_j[0] * point_normal.x + view2gaussian_j[1] * point_normal.y + view2gaussian_j[2] * point_normal.z,
+			// 	view2gaussian_j[4] * point_normal.x + view2gaussian_j[5] * point_normal.y + view2gaussian_j[6] * point_normal.z,
+			// 	view2gaussian_j[8] * point_normal.x + view2gaussian_j[9] * point_normal.y + view2gaussian_j[10] * point_normal.z,
+			// };
+
+			float nx = __fmaf_rn(view2gaussian_j[0], point_normal.x,
+					   __fmaf_rn(view2gaussian_j[1], point_normal.y,
+							  	 view2gaussian_j[2] * point_normal.z));
+			float ny = __fmaf_rn(view2gaussian_j[4], point_normal.x,
+					   __fmaf_rn(view2gaussian_j[5], point_normal.y,
+							  	 view2gaussian_j[6] * point_normal.z));
+			float nz = __fmaf_rn(view2gaussian_j[8], point_normal.x,
+					   __fmaf_rn(view2gaussian_j[9], point_normal.y,
+							  	 view2gaussian_j[10]* point_normal.z));
+
+			float3 normal = {nx, ny, nz};
 			float dL_dnormal_reg[3] = {0};
 			float normal_tmp[3] = {normal.x, normal.y, normal.z};
 			// // Propagate gradients to per-Gaussian normals
 			for (int ch = 0; ch < 3; ch++) {
 				// normal map to alpha
-				accum_normal_rec[ch] = last_alpha * last_normal[ch] + (1.f - last_alpha) * accum_normal_rec[ch];
+				accum_normal_rec[ch] = last_alpha * last_normal[ch] + one_minus_last_alpha * accum_normal_rec[ch];
 				last_normal[ch] = normal_tmp[ch];
 				dL_dalpha += (normal_tmp[ch] - accum_normal_rec[ch]) * dL_dnormal2D[ch];
 				
 				// normal map to normal
-				dL_dnormal_reg[ch] = alpha * T * dL_dnormal2D[ch]; 
+				dL_dnormal_reg[ch] = weight * dL_dnormal2D[ch]; 
 			}
 			float dL_dnormal_x = dL_dnormal_reg[0];
 			float dL_dnormal_y = dL_dnormal_reg[1];
@@ -660,13 +712,13 @@ renderCUDA(
 				view2gaussian_j[1] * dL_dnormal_x + view2gaussian_j[5] * dL_dnormal_y + view2gaussian_j[9] * dL_dnormal_z,
 				view2gaussian_j[2] * dL_dnormal_x + view2gaussian_j[6] * dL_dnormal_y + view2gaussian_j[10] * dL_dnormal_z
 			};
-			
+
 			float dL_dlength = dL_dpoint_normal.x * point_normal_unnormalized.x + dL_dpoint_normal.y * point_normal_unnormalized.y + dL_dpoint_normal.z * point_normal_unnormalized.z;
 			dL_dlength *= -1.f / (length * length);
 			const float3 dL_point_normal_unnormalized = {
-				(dL_dpoint_normal.x + dL_dlength * point_normal_unnormalized.x) / length * (-sign_normal),
-				(dL_dpoint_normal.y + dL_dlength * point_normal_unnormalized.y) / length * (-sign_normal),
-				(dL_dpoint_normal.z + dL_dlength * point_normal_unnormalized.z) / length * (-sign_normal)
+				(dL_dpoint_normal.x + dL_dlength * point_normal_unnormalized.x) * rlength * (-sign_normal),
+				(dL_dpoint_normal.y + dL_dlength * point_normal_unnormalized.y) * rlength * (-sign_normal),
+				(dL_dpoint_normal.z + dL_dlength * point_normal_unnormalized.z) * rlength * (-sign_normal)
 			};
 			dL_dalpha *= T;
 
@@ -678,54 +730,61 @@ renderCUDA(
 			float bg_dot_dpixel = 0;
 			for (int i = 0; i < C; i++)
 				bg_dot_dpixel += bg_color[i] * dL_dpixel[i];
-			dL_dalpha += (-T_final / (1.f - alpha)) * bg_dot_dpixel;
+			// dL_dalpha += (-T_final / (1.f - alpha)) * bg_dot_dpixel;
+			dL_dalpha += __fdividef(-T_final, 1.f - alpha) * bg_dot_dpixel;
 
 			atomicAdd(&(dL_dopacity[global_id]), G * dL_dalpha);
 
 
 			const float dL_dG = rscale_o_j.w * dL_dalpha;
-			const float dL_ds = dL_dG * (-G * s / r0_2);
-			const float dL_dr0_2 = dL_dG * (G * (-power / r0_2));
+			// const float dL_ds = dL_dG * (-G * s / r0_2);
+			// const float dL_dr0_2 = dL_dG * (G * (-power / r0_2));
+			const float dL_ds = dL_dG * __fdividef(-G * s, r0_2);
+			const float dL_dr0_2 = dL_dG * (G * __fdividef(-power, r0_2));
 			const float u = 2 * a * p_norm;
-			const float dL_du = dL_ds * sqrt(u * u + 1) / (2 * a);
-
-			float dL_da = 2 * dL_du * p_norm - dL_ds * s / a;
-
+			// const float dL_du = dL_ds * sqrt(u * u + 1) / (2 * a);
+			const float dL_du = dL_ds * __fdividef(__fsqrt_rn(u * u + 1), (2 * a));
+			// float dL_da = 2 * dL_du * p_norm - dL_ds * s / a;
+			float dL_da = 2 * dL_du * p_norm - dL_ds * __fdividef(s, a);
 			float rcos_s_sin_s_2_2 = r0_2 * r0_2;
 			const float dL_dcos_2 = dL_da * scale_j.z * rscale_sign_j.x + dL_dr0_2 * (-rscale_o_j.x * rcos_s_sin_s_2_2);
 			const float dL_dsin_2 = dL_da * scale_j.z * rscale_sign_j.y + dL_dr0_2 * (-rscale_o_j.y * rcos_s_sin_s_2_2);
 
-			const float rl_1 = 1 / (p_norm);
-			const float rl_2 = 1 / (p_norm_2);
-			const float rl_3 = 1 / (p_norm_2 * p_norm);
+			// const float rl_1 = 1 / (p_norm);
+			// const float rl_2 = 1 / (p_norm_2);
+			// const float rl_3 = 1 / (p_norm_2 * p_norm);
+			const float rl_1 = __frcp_rn(p_norm);
+			const float rl_2 = __frcp_rn(p_norm_2);
+			const float rl_3 = __frcp_rn(p_norm_2 * p_norm);
 			
-			const float dL_dl = dL_du * (2 * a) + dL_dcos_2 * (-2 * p.x * p.x * rl_3) + dL_dsin_2 * (-2 * p.y * p.y * rl_3);
-
+			const float dL_dl = dL_du * (2 * a) + dL_dcos_2 * (-2 * px_2 * rl_3) + dL_dsin_2 * (-2 * py_2 * rl_3);
+			// printf("dL_dl of pixel %d,%d is :%.12f\n",pix.x, pix.y, dL_dl);
 			float3 dL_dx = {0.0f, 0.0f, 0.0f};
 			dL_dx.x = p.x * (dL_dl * rl_1 + dL_dcos_2 * 2 * rl_2);
 			dL_dx.y = p.y * (dL_dl * rl_1 + dL_dsin_2 * 2 * rl_2);
-
+			// printf("dL_dx of pixel %d,%d is :%.12f,%.12f\n",pix.x, pix.y, dL_dx.x, dL_dx.y);
 			// from normal map
 			dL_dx.x += dL_point_normal_unnormalized.x * 2 * rscale_sign_j.x;
 			dL_dx.y += dL_point_normal_unnormalized.y * 2 * rscale_sign_j.y;
 
 			// from curvature map
+#if !DETACH_CURVATURE
 			dL_dx.x += dL_dcurvature * (- 64 * coeff_1 * coeff_1 * coeff_1 * coeff_2 * p.x * rden_3);
 			dL_dx.y += dL_dcurvature * (- 64 * coeff_2 * coeff_2 * coeff_2 * coeff_1 * p.y * rden_3);
-
+#endif
 			// splatting to dt
 			float dL_dt = dL_dx.x * cam_ray_local.x + dL_dx.y * cam_ray_local.y;
-			
+			// printf("dL_dt of pixel %d,%d is :%.12f\n",pix.x, pix.y, dL_dt);
 			// distortion to dt
 			dL_dt += dL_dmax_t;
 
 			// median depth to dt
-			if (contributor == median_contributor-1) {
+			if (contributor == median_contributor - 1) {
 				dL_dt += dL_dmedian_depth;
 				dL_dweight += dL_dmax_dweight;
 			}
 			// render depth to dt
-			dL_dt += alpha * T * dL_ddepth;
+			dL_dt += weight * dL_ddepth;
 
 
 			float dL_dAA = 0.0f;
@@ -746,6 +805,7 @@ renderCUDA(
 				dL_dBB = dL_dt * (BB * sign * rdiscriminant_sq - 1) * r2AA;
 				dL_dCC = dL_dt * (-sign * rdiscriminant_sq);
 			}
+			// printf("dL_dAA,dL_dBB,dL_dCC of pixel %d,%d is :%.12f,%.12f,%.12f\n",pix.x, pix.y, dL_dAA,dL_dBB,dL_dCC);
 
 			float3 dL_dog = {0.0f, 0.0f, 0.0f};
 			float3 dL_drg = {0.0f, 0.0f, 0.0f};
@@ -763,38 +823,44 @@ renderCUDA(
 			dL_drg.x += dL_dx.x * root;
 			dL_drg.y += dL_dx.y * root;
 
+			// printf("dL_dog of pixel %d,%d is :%.12f,%.12f,%.12f\n",pix.x, pix.y, dL_dog.x, dL_dog.y, dL_dog.z);
+			// printf("dL_drg of pixel %d,%d is :%.12f,%.12f,%.12f\n",pix.x, pix.y, dL_drg.x, dL_drg.y, dL_drg.z);
+
 			float3 dL_dscale_221 = {0.0f, 0.0f, 0.0f};
 
 			// dL_dAA(BB,CC) may introduce more numerical errors.
 			const float3 rscale_4_sign = {rscale_sign_j.x * rscale_o_j.x, rscale_sign_j.y * rscale_o_j.y, rscale_sign_j.z * rscale_o_j.z};
 			dL_dscale_221.x += dL_da * (-rscale_4_sign.x * cos2_sin2.x * scale_j.z)
 						  + dL_dr0_2 * (rscale_o_j.x * rscale_o_j.x * cos2_sin2.x * rcos_s_sin_s_2_2);
-						//   + dL_dAA * (-rscale_4_sign.x * cam_ray_local.x * cam_ray_local.x)
-						//   + dL_dBB * (-2 * rscale_4_sign.x * cam_ray_local.x * cam_pos_local.x)
-						//   + dL_dCC * (-rscale_4_sign.x * cam_pos_local.x * cam_pos_local.x);
+						  + dL_dAA * (-rscale_4_sign.x * cam_ray_local.x * cam_ray_local.x)
+						  + dL_dBB * (-2 * rscale_4_sign.x * cam_ray_local.x * cam_pos_local.x)
+						  + dL_dCC * (-rscale_4_sign.x * cam_pos_local.x * cam_pos_local.x);
 						  
 			dL_dscale_221.y += dL_da * (-rscale_4_sign.y * cos2_sin2.y * scale_j.z)
 						  + dL_dr0_2 * (rscale_o_j.y * rscale_o_j.y * cos2_sin2.y * rcos_s_sin_s_2_2);
-						//   + dL_dAA * (-rscale_4_sign.y * cam_ray_local.y * cam_ray_local.y)
-						//   + dL_dBB * (-2 * rscale_4_sign.y * cam_ray_local.y * cam_pos_local.y)
-						//   + dL_dCC * (-rscale_4_sign.y * cam_pos_local.y * cam_pos_local.y);
+						  + dL_dAA * (-rscale_4_sign.y * cam_ray_local.y * cam_ray_local.y)
+						  + dL_dBB * (-2 * rscale_4_sign.y * cam_ray_local.y * cam_pos_local.y)
+						  + dL_dCC * (-rscale_4_sign.y * cam_pos_local.y * cam_pos_local.y);
  
 			dL_dscale_221.z += dL_da * (rscale_sign_j.x * cos2_sin2.x + rscale_sign_j.y * cos2_sin2.y);
-						//   + dL_dBB * (cam_ray_local.z * rscale_4_sign.z)
-						//   + dL_dCC * (cam_pos_local.z * rscale_4_sign.z);
-						 
+						  + dL_dBB * (cam_ray_local.z * rscale_4_sign.z)
+						  + dL_dCC * (cam_pos_local.z * rscale_4_sign.z);
+			// printf("dL_dscale_221 of pixel %d,%d is :%.12f,%.12f,%.12f\n",pix.x, pix.y, dL_dscale_221.x, dL_dscale_221.y, dL_dscale_221.z);			 
 			// from normal regularization loss
 			dL_dscale_221.x += dL_point_normal_unnormalized.x * (-2 * rscale_4_sign.x * p.x);
 			dL_dscale_221.y += dL_point_normal_unnormalized.y * (-2 * rscale_4_sign.y * p.y);
 			dL_dscale_221.z += dL_point_normal_unnormalized.z * (rscale_4_sign.z);
 
+#if !DETACH_CURVATURE
 			// from curvature map
 			dL_dscale_221.x += dL_dcoeff1 * (-rscale_4_sign.x * scale_j.z);
 			dL_dscale_221.y += dL_dcoeff2 * (-rscale_4_sign.y * scale_j.z);
 			dL_dscale_221.z += dL_dcoeff1 * rscale_sign_j.x + dL_dcoeff2 * rscale_sign_j.y;
+#endif
 			float3 dL_dscale = {dL_dscale_221.x * 2 * scale_j.x, dL_dscale_221.y * 2 * scale_j.y, 0.0f};
 			if (!stop_z_gradient)
 				dL_dscale.z += dL_dscale_221.z;
+			// printf("dL_dscale of pixel %d,%d is :%.12f,%.12f,%.12f\n",pix.x, pix.y, dL_dscale.x, dL_dscale.y, dL_dscale.z);			 
 
 			float dL_dview2gaussian_j[16] = {
 				 dL_drg.x * ray_point.x, dL_drg.y * ray_point.x, dL_drg.z * ray_point.x, 0,
@@ -816,9 +882,19 @@ renderCUDA(
 			dL_dview2gaussian_j[10] += point_normal.z * dL_dnormal_z;
 
 			// write the gradients to global memory
-			for (int ii = 0; ii < 16; ii++)
-				atomicAdd(&(dL_dview2gaussian[global_id * 16 + ii]), dL_dview2gaussian_j[ii]);
-			
+			atomicAdd(&(dL_dview2gaussian[global_id * 16 + 0]), dL_dview2gaussian_j[0]);
+			atomicAdd(&(dL_dview2gaussian[global_id * 16 + 1]), dL_dview2gaussian_j[1]);
+			atomicAdd(&(dL_dview2gaussian[global_id * 16 + 2]), dL_dview2gaussian_j[2]);
+			atomicAdd(&(dL_dview2gaussian[global_id * 16 + 4]), dL_dview2gaussian_j[4]);
+			atomicAdd(&(dL_dview2gaussian[global_id * 16 + 5]), dL_dview2gaussian_j[5]);
+			atomicAdd(&(dL_dview2gaussian[global_id * 16 + 6]), dL_dview2gaussian_j[6]);
+			atomicAdd(&(dL_dview2gaussian[global_id * 16 + 8]), dL_dview2gaussian_j[8]);
+			atomicAdd(&(dL_dview2gaussian[global_id * 16 + 9]), dL_dview2gaussian_j[9]);
+			atomicAdd(&(dL_dview2gaussian[global_id * 16 + 10]), dL_dview2gaussian_j[10]);
+			atomicAdd(&(dL_dview2gaussian[global_id * 16 + 12]), dL_dview2gaussian_j[12]);
+			atomicAdd(&(dL_dview2gaussian[global_id * 16 + 13]), dL_dview2gaussian_j[13]);
+			atomicAdd(&(dL_dview2gaussian[global_id * 16 + 14]), dL_dview2gaussian_j[14]);
+
 			atomicAdd(&(dL_dscales[global_id * 3 + 0]), dL_dscale.x);
 			atomicAdd(&(dL_dscales[global_id * 3 + 1]), dL_dscale.y);
 			atomicAdd(&(dL_dscales[global_id * 3 + 2]), dL_dscale.z);
@@ -903,6 +979,8 @@ void BACKWARD::render(
 	const uint32_t* n_contrib,
 	const float* out_colors,
 	const float* dL_dpixels,
+	const bool return_depth,
+	const bool return_normal,
 	float* dL_dopacity,
 	float* dL_dcolors,
 	float* dL_dscales,
@@ -930,6 +1008,8 @@ void BACKWARD::render(
 		n_contrib,
 		out_colors,
 		dL_dpixels,
+		return_depth,
+		return_normal,
 		dL_dopacity,
 		dL_dcolors,
 		dL_dscales,
@@ -956,6 +1036,8 @@ void BACKWARD::render(
 		final_Ts,
 		n_contrib,
 		dL_dpixels,
+		return_depth,
+		return_normal,
 		dL_dopacity,
 		dL_dcolors,
 		dL_dscales,

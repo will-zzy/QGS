@@ -123,14 +123,15 @@ class GaussianExtractor(object):
         """
         self.clean()
         self.viewpoint_stack = viewpoint_stack
+        import time 
+        start = time.time()
         for i, viewpoint_cam in tqdm(enumerate(self.viewpoint_stack), desc="reconstruct radiance fields"):
             render_pkg = self.render(viewpoint_cam, self.gaussians)
             rgb = render_pkg['render']
             alpha = render_pkg['render_alpha']
             normal = torch.nn.functional.normalize(render_pkg['render_normal'], dim=0)
-            depth = render_pkg['render_depth']
+            depth = render_pkg['surf_depth']
             depth_normal = render_pkg['surf_normal']
-            point = render_pkg['surf_point']
             render_curvature = render_pkg['render_curvature']
             render_curvature_log = torch.log(render_curvature)
             
@@ -146,7 +147,8 @@ class GaussianExtractor(object):
             # self.normals.append(normal.cpu())
             # self.depth_normals.append(depth_normal.cpu())
             # self.points.append(point.cpu())
-        
+        end = time.time()
+        print("time:",end-start)
         # self.rgbmaps = torch.stack(self.rgbmaps, dim=0)
         # self.depthmaps = torch.stack(self.depthmaps, dim=0)
         # self.alphamaps = torch.stack(self.alphamaps, dim=0)

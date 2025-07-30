@@ -57,6 +57,8 @@ RasterizeGaussiansCUDA(
 	const torch::Tensor& campos,
 	const torch::Tensor& cam_intr,
 	const bool prefiltered,
+	const bool return_depth,
+	const bool return_normal,
 	const bool debug)
 {
   if (means3D.ndimension() != 2 || means3D.size(1) != 3) {
@@ -121,6 +123,8 @@ RasterizeGaussiansCUDA(
 		kernel_size,
 		subpixel_offset.contiguous().data<float>(),
 		prefiltered,
+		return_depth,
+		return_normal,
 		out_color.contiguous().data<float>(),
 		n_touched.contiguous().data<int>(),
 		radii.contiguous().data<int>(),
@@ -156,6 +160,8 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 	const int R,
 	const torch::Tensor& binningBuffer,
 	const torch::Tensor& imageBuffer,
+	const bool return_depth,
+	const bool return_normal,
 	const bool debug,
 	const bool stop_z_gradient,
 	const bool reciprocal_z) 
@@ -217,6 +223,8 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 	  dL_dscales.contiguous().data<float>(),
 	  dL_drotations.contiguous().data<float>(),
 	  dL_dview2gaussian.contiguous().data<float>(),
+	  return_depth,
+	  return_normal,
 	  debug);
   }
   // also return dL_dview2gaussian so it could be used when view2gaussian is precomputed

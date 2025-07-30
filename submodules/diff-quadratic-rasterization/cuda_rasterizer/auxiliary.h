@@ -32,18 +32,12 @@
 #define MAX_NUM_CONTRIBUTORS 256
 #define NEAR_PLANE 0.2
 #define FAR_PLANE 100.0
-#define SIGMOID_SCALE 4.0f
-#define SPHERE_RADIUS 1.5f
-
-#define DELTA_SCALE 0.2f
-
-#define POLY2COEFF_1 0.8571428571428571
-#define POLY2COEFF_2 0.5714285714285714
 
 #define TILE_SORTING 1
 #define PIXEL_RESORTING 1
 #define QUADRATIC_APPROXIMATION 0
 #define DETACH_DIST2WEIGHT 1
+#define DETACH_CURVATURE 1
 #define MAX_NUM_PROJECTED 256
 #define DEBUG 0
 #define BUFFER_LENGTH 8
@@ -261,6 +255,9 @@ __forceinline__ __device__ float GetParabolaA(const float2 cos2_sin2, const floa
 	float second = cos2_sin2.y * rs_2_sign.y;
 	float a = scale.z * (first + second);
 	return a; // The geodesic function is an even function with respect to a.
+	// float sum = __fmaf_rn(cos2_sin2.y, rs_2_sign.y,
+    //                       cos2_sin2.x * rs_2_sign.x);
+	// return sum * scale.z;
 }
 
 // Refer to Eq. 10 in the QGS main text.
@@ -271,6 +268,11 @@ __forceinline__ __device__ float QuadraticCurveGeodesicDistanceOriginal(const fl
 	float den = __logf(sqrt_tmp + u);
 	float r4a = __frcp_rn(4 * a);
 	return den * r4a + 0.5 * l * sqrt_tmp;
+	// float u = __fmaf_rn(__fmaf_rn(2.f, a, 0.f), l, 0.f);
+    // float sqrt_tmp = __fsqrt_rn(__fmaf_rn(u, u, 1.f));
+    // float den = __logf(__fmaf_rn(sqrt_tmp, 1.f, u));
+    // float r4a = __fdividef(1.0f, 4.f * a);
+    // return __fmaf_rn(den, r4a, 0.5f * l * sqrt_tmp);
 }
 
 

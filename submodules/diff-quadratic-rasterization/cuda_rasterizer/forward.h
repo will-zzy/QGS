@@ -70,6 +70,8 @@ namespace FORWARD
 		const float* depths,
 		const float4* rscales_opacity,
 		const int3* scales_sign,
+		const bool return_depth,
+		const bool return_normal,
 		float* final_T,
 		uint32_t* n_contrib,
 		const float* bg_color,
