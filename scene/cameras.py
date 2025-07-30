@@ -15,6 +15,36 @@ import numpy as np
 from PIL import Image
 from utils.graphics_utils import getWorld2View2, getProjectionMatrix
 from utils.general_utils import PILtoTorch
+import torch.nn.functional as F
+
+def dilate(bin_img, ksize=6):
+    pad = (ksize - 1) // 2
+    bin_img = F.pad(bin_img, pad=[pad, pad, pad, pad], mode='reflect')
+    out = F.max_pool2d(bin_img, kernel_size=ksize, stride=1, padding=0)
+    return out
+
+def erode(bin_img, ksize=12):
+    out = 1 - dilate(1 - bin_img, ksize)
+    return out
+
+def process_image(image_path, resolution, ncc_scale):
+    image = Image.open(image_path)
+    if len(image.split()) > 3:
+        resized_image_rgb = torch.cat([PILtoTorch(im, resolution) for im in image.split()[:3]], dim=0)
+        loaded_mask = PILtoTorch(image.split()[3], resolution)
+        gt_image = resized_image_rgb
+        if ncc_scale != 1.0: # 需要原图像的分辨率来计算NCC
+            ncc_resolution = (int(resolution[0]/ncc_scale), int(resolution[1]/ncc_scale))
+            resized_image_rgb = torch.cat([PILtoTorch(im, ncc_resolution) for im in image.split()[:3]], dim=0)
+    else:
+        resized_image_rgb = PILtoTorch(image, resolution)
+        loaded_mask = None
+        gt_image = resized_image_rgb
+        if ncc_scale != 1.0:
+            ncc_resolution = (int(resolution[0]/ncc_scale), int(resolution[1]/ncc_scale))
+            resized_image_rgb = PILtoTorch(image, ncc_resolution)
+    gray_image = (0.299 * resized_image_rgb[0] + 0.587 * resized_image_rgb[1] + 0.114 * resized_image_rgb[2])[None]
+    return gt_image, gray_image, loaded_mask
 
 class Camera(nn.Module):
     def __init__(self, cam_info, resolution, uid,
@@ -22,8 +52,10 @@ class Camera(nn.Module):
                  ):
         super(Camera, self).__init__()
 
-        self.R = cam_info.R
+        self.R = cam_info.R # W2C.R^T
         self.T = cam_info.T
+        self.nearest_id = []
+        self.nearest_names = []
         self.FoVx = cam_info.FovX
         self.FoVy = cam_info.FovY
         self.image_name = cam_info.image_name
@@ -36,6 +68,10 @@ class Camera(nn.Module):
         self.image_width = resolution[0]
         self.image_height = resolution[1]
         self.gt_alpha_mask = gt_alpha_mask
+        self.Fx = self.cam_intr[0]
+        self.Fy = self.cam_intr[1]
+        self.Cx = self.cam_intr[2]
+        self.Cy = self.cam_intr[3]
 
         try:
             self.data_device = torch.device(data_device)
@@ -43,20 +79,30 @@ class Camera(nn.Module):
             print(e)
             print(f"[Warning] Custom device {data_device} failed, fallback to default cuda device" )
             self.data_device = torch.device("cuda")
+            
+        self.original_image, self.image_gray, self.mask = None, None, None
+        self.preload_img = self.image_type == "all"
+        self.ncc_scale = cam_info.downsample ###
 
-        if self.image_type == "all":
-            image = Image.open(self.image_path)
-            if len(image.split()) > 3:
-                loaded_mask = PILtoTorch(image.split()[3], resolution)
-                self.gt_alpha_mask = loaded_mask.to(self.data_device)
-                resized_image_rgb = torch.cat([PILtoTorch(im, resolution) for im in image.split()[:3]], dim=0)
-                if self.use_alpha:
-                    self.image = (loaded_mask * resized_image_rgb).to(self.data_device)
-                else:
-                    self.image = (resized_image_rgb).to(self.data_device)
-            else:
-                self.image = PILtoTorch(image, resolution).to(self.data_device)
-                self.gt_alpha_mask = torch.ones_like(PILtoTorch(image.split()[0], self.resolution)).to(self.data_device)
+        if self.preload_img:
+            gt_image, gray_image, loaded_mask = process_image(self.image_path, self.resolution, self.ncc_scale)
+            self.original_image = gt_image.to(self.data_device)
+            self.original_image_gray = gray_image.to(self.data_device)
+            if loaded_mask is not None:
+                self.mask = loaded_mask.to(self.data_device)
+        # if self.image_type == "all":
+        #     image = Image.open(self.image_path)
+        #     if len(image.split()) > 3:
+        #         loaded_mask = PILtoTorch(image.split()[3], resolution)
+        #         self.gt_alpha_mask = loaded_mask.to(self.data_device)
+        #         resized_image_rgb = torch.cat([PILtoTorch(im, resolution) for im in image.split()[:3]], dim=0)
+        #         if self.use_alpha:
+        #             self.image = (loaded_mask * resized_image_rgb).to(self.data_device)
+        #         else:
+        #             self.image = (resized_image_rgb).to(self.data_device)
+        #     else:
+        #         self.image = PILtoTorch(image, resolution).to(self.data_device)
+        #         self.gt_alpha_mask = torch.ones_like(PILtoTorch(image.split()[0], self.resolution)).to(self.data_device)
         
 
         self.zfar = 100.0
@@ -74,34 +120,62 @@ class Camera(nn.Module):
         self.focal_y = self.image_height / (2.0 * tan_fovy)
         self.focal_x = self.image_width / (2.0 * tan_fovx)
         
-    @property
+    # @property
+    # def get_image(self):
+    #     if self.image_type == "all":
+    #         return self.image
+    #     if self.image_type == "iterable":
+    #         image = Image.open(self.image_path)
+    #         if len(image.split()) > 3:
+    #             if self.use_alpha:
+    #                 loaded_mask = PILtoTorch(image.split()[3], self.resolution).to(self.data_device)
+    #             else:
+    #                 loaded_mask = torch.ones_like(PILtoTorch(image.split()[0], self.resolution)).to(self.data_device)
+    #             resized_image_rgb = torch.cat([PILtoTorch(im, self.resolution) for im in image.split()[:3]], dim=0).to(self.data_device)
+    #             return_image = (loaded_mask * resized_image_rgb).to(self.data_device)
+    #         else:
+    #             return_image = PILtoTorch(image, self.resolution).to(self.data_device)
+    #     return return_image  
     def get_image(self):
-        if self.image_type == "all":
-            return self.image
-        if self.image_type == "iterable":
-            image = Image.open(self.image_path)
-            if len(image.split()) > 3:
-                if self.use_alpha:
-                    loaded_mask = PILtoTorch(image.split()[3], self.resolution).to(self.data_device)
-                else:
-                    loaded_mask = torch.ones_like(PILtoTorch(image.split()[0], self.resolution)).to(self.data_device)
-                resized_image_rgb = torch.cat([PILtoTorch(im, self.resolution) for im in image.split()[:3]], dim=0).to(self.data_device)
-                return_image = (loaded_mask * resized_image_rgb).to(self.data_device)
-            else:
-                return_image = PILtoTorch(image, self.resolution).to(self.data_device)
-        return return_image   
-     
+        if self.preload_img:
+            return self.original_image, self.original_image_gray
+        else:
+            gt_image, gray_image, _ = process_image(self.image_path, self.resolution, self.ncc_scale)
+            return gt_image.cuda(), gray_image.cuda()
+
     @property
     def get_mask(self):
-        if self.image_type == "all":
-            return self.gt_alpha_mask
-        if self.image_type == "iterable":
+        if self.preload_img:
+            return self.mask
+        else:
             image = Image.open(self.image_path)
             if len(image.split()) > 3 and self.use_alpha:
                 return_image = PILtoTorch(image.split()[3], self.resolution).to(self.data_device)
             else:
                 return_image = torch.ones_like(PILtoTorch(image.split()[0], self.resolution)).to(self.data_device)
-        return return_image    
+        return return_image  
+    
+    def get_rays(self, scale=1.0):
+        W, H = int(self.image_width/scale), int(self.image_height/scale)
+        ix, iy = torch.meshgrid(
+            torch.arange(W), torch.arange(H), indexing='xy')
+        rays_d = torch.stack(
+                    [(ix-self.Cx/scale) / self.Fx * scale,
+                    (iy-self.Cy/scale) / self.Fy * scale,
+                    torch.ones_like(ix)], -1).float().cuda()
+        return rays_d  
+    
+    def get_k(self, scale=1.0):
+        K = torch.tensor([[self.Fx / scale, 0, self.Cx / scale],
+                        [0, self.Fy / scale, self.Cy / scale],
+                        [0, 0, 1]]).cuda()
+        return K
+    
+    def get_inv_k(self, scale=1.0):
+        K_T = torch.tensor([[scale/self.Fx, 0, -self.Cx/self.Fx],
+                            [0, scale/self.Fy, -self.Cy/self.Fy],
+                            [0, 0, 1]]).cuda()
+        return K_T
 
 class MiniCam:
     def __init__(self, width, height, fovy, fovx, znear, zfar, world_view_transform, full_proj_transform):

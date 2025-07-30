@@ -11,9 +11,8 @@ render_path: False
 # case_name: Caterpillar
 case_name: Ignatius
 # case_name: Meetingroom
-root_dir: /data1/zzy/public_data/TNT/TNT_GOF/TrainingSet/${case_name}
+root_dir: /data/public_data/TNT/TNT_GOF/TrainingSet//${case_name}
 
-GT_path:
 pipeline:
   num_cluster: 1
   depth_ratio: 0.85
@@ -36,14 +35,17 @@ dataset:
   type: all
   ncc_scale: ${dataset.downsample}
 
+
 optimizer:
   percent_dense: 0.0005
+  # densify_grad_threshold: 0.0004
   densify_grad_threshold: 0.4
   multi_view_weight_from_iter: 7000
   multi_view_ncc_weight: 0.15 # 0.15
   multi_view_geo_weight: 0.03
   curvature_clamp_threshold: -5.0
   lambda_dist: 500.0
+  exposure_compensation: True
   lambda_normal: 0.05
   single_view_weight: 0.05
 
@@ -52,14 +54,17 @@ model_path: >
   DensifyGrad=${optimizer.densify_grad_threshold}_
   CurvClamp=${optimizer.curvature_clamp_threshold}_
   Dist=${optimizer.lambda_dist}_
-  Percendent=${optimizer.percent_dense}
+  Percendent=${optimizer.percent_dense}_
+  test_sign
+# with_MVS_Consistency_more_CPU_renderNormal_from_15000_SurfnormalNcc=0.15_
 # path to pre-trained model
-# load_model_path: ${root_dir}/exp/DepthRatio=1.0_DensifyGrad=0.2_CurvClamp=-5.0_Dist=500.0_Percendent=0.0001
+# load_model_path: ${root_dir}/exp/DepthRatio=1.0_DensifyGrad=0.5_CurvClamp=-10.0_Dist=100.0_Percendent=0.0001_With_TS_PR_2DGS
+# load_model_path: ${root_dir}/exp/DepthRatio=1.0_DensifyGrad=0.15_CurvClamp=-5.0_Dist=500.0_Percendent=0.0001_with_dL_dAABBCC_PreprocessBackwardForwardOpti_final_version_moreTightBbox_mapped_Z_for_gradient
 load_model_path: ${model_path}
 
 # eval mesh
 # dataset_GT_path: the path to directory containing xxx_trans.txt, xxx.ply, xxx.json, xxx_COLMAP_SfM.log
-dataset_GT_path: /data1/zzy/public_data/TNT/TNT_GOF/TrainingSet/GT/${case_name}
+dataset_GT_path: /data/public_data/TNT/GT/${case_name}
 traj_path: ${root_dir}/${case_name}_COLMAP_SfM.log
 # mesh_ply_path: the path to directory containing mesh to evaluate
 mesh_ply_path: ${load_model_path}/train/ours_30000/fuse_post.ply

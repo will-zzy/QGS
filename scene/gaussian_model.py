@@ -33,12 +33,26 @@ class GaussianModel:
         def scaling_activation(scaling):
             return torch.exp(scaling[:, :3]) * torch.tanh(scaling[:, 3:6])
         
+        def split_scale(selected_pts_mask, N):
+            sign_quantity = self._scaling[selected_pts_mask, 3:].repeat(N,1)
+            scale_quantity_exp = torch.exp(self._scaling[selected_pts_mask, :3]).repeat(N,1) / (0.8*N)
+            scale_quantity_log = torch.log(scale_quantity_exp)
+            # factor = torch.tanh(scaling_sign[0])
+            # scaling = torch.log(torch.abs(scale) / factor)
+            # scaling_sign = scaling_sign * torch.sign(scale)
+            return torch.cat([scale_quantity_log, sign_quantity], dim=1)
+        
+        
         def scaling_inverse_activation(scale):
             scaling_sign = torch.ones_like(scale)
-            factor = torch.tanh(scaling_sign)
+            factor = torch.tanh(scaling_sign[0])
             scaling = torch.log(torch.abs(scale) / factor)
             scaling_sign = scaling_sign * torch.sign(scale)
             return torch.cat([scaling, scaling_sign], dim=1)
+        
+            # scaling_sign = torch.sign(scale)
+            # scaling = torch.log(torch.abs(scale))
+            # return torch.cat([scaling, scaling_sign], dim=1)
             
         ### These activation functions for scale all perform poorly.
         # def scaling_activation(x, scale, factor):
@@ -62,6 +76,7 @@ class GaussianModel:
         
         self.scaling_activation = scaling_activation
         self.scaling_inverse_activation = scaling_inverse_activation
+        self.split_scale = split_scale
         
         # self.scaling_activation = torch.exp
         # self.scaling_inverse_activation = torch.log
@@ -77,7 +92,8 @@ class GaussianModel:
     def __init__(self, config):
         self.active_sh_degree = 0
         self.max_sh_degree = config.sh_degree  
-        self.sigma = config.sigma
+        # self.sigma = config.sigma
+        self.sigma = 3.0
         self._xyz = torch.empty(0)
         self._features_dc = torch.empty(0)
         self._features_rest = torch.empty(0)
@@ -92,6 +108,7 @@ class GaussianModel:
         self.percent_dense = 0
         self.spatial_lr_scale = 0
         self.setup_functions()
+        self.use_app = False
     
     def capture(self):
         return (
@@ -130,14 +147,7 @@ class GaussianModel:
     @property
     def get_scaling(self):
         return self.scaling_activation(self._scaling)
-    
-    @property
-    def get_scaling_with_3D_filter(self):
-        scales = self.get_scaling
-        
-        scales = torch.square(scales) + torch.square(self.filter_3D)
-        scales = torch.sqrt(scales)
-        return scales
+
     
     @property
     def get_rotation(self):
@@ -155,9 +165,6 @@ class GaussianModel:
     @property
     def get_opacity(self):
         return self.opacity_activation(self._opacity)
-    @property
-    def get_s(self):
-        return self._s
 
     def get_view2gaussian(self, viewmatrix):
         r = self._rotation
@@ -210,6 +217,7 @@ class GaussianModel:
         if self.active_sh_degree < self.max_sh_degree:
             self.active_sh_degree += 1
 
+
     def create_from_pcd(self, pcd : BasicPointCloud, spatial_lr_scale : float):
         self.spatial_lr_scale = spatial_lr_scale
         fused_point_cloud = torch.tensor(np.asarray(pcd.points)).float().cuda()
@@ -224,7 +232,7 @@ class GaussianModel:
 
         dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(pcd.points)).float().cuda()), 0.0000001)
         scale_dist = torch.sqrt(dist2)[...,None].repeat(1, 3)
-        scale_dist[..., 2]=0.00001
+        scale_dist[..., 2] = 0.0001
         scales = self.scaling_inverse_activation(scale_dist)
         rots = torch.rand((fused_point_cloud.shape[0], 4), device="cuda")
 
@@ -235,7 +243,6 @@ class GaussianModel:
         self._scaling = nn.Parameter(scales.requires_grad_(True))
         self._rotation = nn.Parameter(rots.requires_grad_(True))
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
-        self._s = nn.Parameter(torch.tensor(100.0).requires_grad_(True))
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
     def training_setup(self, training_args):
@@ -453,7 +460,8 @@ class GaussianModel:
         samples = torch.normal(mean=means, std=stds)
         rots = build_rotation(self._rotation[selected_pts_mask]).repeat(N,1,1)
         new_xyz = torch.bmm(rots, samples.unsqueeze(-1)).squeeze(-1) + self.get_xyz[selected_pts_mask].repeat(N, 1)
-        new_scaling = self.scaling_inverse_activation(self.get_scaling[selected_pts_mask].repeat(N,1) / (0.8*N))
+        # new_scaling = self.scaling_inverse_activation(self.get_scaling[selected_pts_mask].repeat(N,1) / (0.8*N)) 
+        new_scaling = self.split_scale(selected_pts_mask, N) 
         new_rotation = self._rotation[selected_pts_mask].repeat(N,1)
         new_features_dc = self._features_dc[selected_pts_mask].repeat(N,1,1)
         new_features_rest = self._features_rest[selected_pts_mask].repeat(N,1,1)
@@ -497,4 +505,39 @@ class GaussianModel:
     def add_densification_stats(self, viewspace_point_tensor, radii, update_filter):
         self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor.grad[update_filter], dim=-1, keepdim=True)
         self.denom[update_filter] += 1
+    
+    
+    def get_points_depth_in_depth_map(self, fov_camera, depth, points_in_camera_space, scale=1):
+        st = max(int(scale/2)-1,0)
+        depth_view = depth[None,:,st::scale,st::scale]
+        W, H = int(fov_camera.image_width/scale), int(fov_camera.image_height/scale)
+        depth_view = depth_view[:H, :W]
+        pts_projections = torch.stack(
+                        [points_in_camera_space[:,0] * fov_camera.Fx / points_in_camera_space[:,2] + fov_camera.Cx,
+                         points_in_camera_space[:,1] * fov_camera.Fy / points_in_camera_space[:,2] + fov_camera.Cy], -1).float()/scale
+        mask = (pts_projections[:, 0] > 0) & (pts_projections[:, 0] < W) &\
+               (pts_projections[:, 1] > 0) & (pts_projections[:, 1] < H) & (points_in_camera_space[:,2] > 0.1)
+
+        pts_projections[..., 0] /= ((W - 1) / 2)
+        pts_projections[..., 1] /= ((H - 1) / 2)
+        pts_projections -= 1
+        pts_projections = pts_projections.view(1, -1, 1, 2)
+        map_z = torch.nn.functional.grid_sample(input=depth_view,
+                                                grid=pts_projections,
+                                                mode='bilinear',
+                                                padding_mode='border',
+                                                align_corners=True
+                                                )[0, :, :, 0]
+        return map_z, mask
+    
+    def get_points_from_depth(self, fov_camera, depth, scale=1):
+        st = int(max(int(scale/2)-1,0))
+        depth_view = depth.squeeze()[st::scale,st::scale]
+        rays_d = fov_camera.get_rays(scale=scale)
+        depth_view = depth_view[:rays_d.shape[0], :rays_d.shape[1]]
+        pts = (rays_d * depth_view[..., None]).reshape(-1,3)
+        R = torch.tensor(fov_camera.R).float().cuda()
+        T = torch.tensor(fov_camera.T).float().cuda()
+        pts = (pts-T)@R.transpose(-1,-2) # 将相机坐标系下的点变换到世界坐标系
+        return pts
         

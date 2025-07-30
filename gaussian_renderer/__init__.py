@@ -11,7 +11,7 @@
 
 import torch
 import math
-from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
+from diff_quadratic_rasterization import GaussianRasterizationSettings, GaussianRasterizer
 from scene.gaussian_model import GaussianModel
 from utils.sh_utils import eval_sh
 from utils.depth_utils import depth_to_normal
@@ -26,6 +26,9 @@ def render(viewpoint_camera,
            override_color = None, 
            subpixel_offset=None, 
            stop_z_gradient = False,
+           app_model=None,
+           return_depth=True,
+           return_normal=True
            ):
     """
     Render the scene. 
@@ -66,7 +69,9 @@ def render(viewpoint_camera,
         debug=pipe.debug,
         # debug=True,
         stop_z_gradient = stop_z_gradient,
-        reciprocal_z = pipe.reciprocal_z
+        reciprocal_z = pipe.reciprocal_z,
+        return_depth=return_depth,
+        return_normal=return_normal,
     )
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
 
@@ -116,9 +121,10 @@ def render(viewpoint_camera,
         rotations = rotations,
         view2gaussian_precomp=view2gaussian_precomp)
     
-    bbox_occupied_pixels = (aabb[:, 2:3] - aabb[:, 0:1]) * (aabb[:, 3:4] - aabb[:, 1:2])
-    occupancy_rate = (n_touched.view(-1,1) / (bbox_occupied_pixels + 1)).view(-1)
-    visibility_filter = (radii > 0) & (occupancy_rate > opt.occupancy_rate) if pipe.occlusion_awared_denom else (radii > 0)
+    # bbox_occupied_pixels = (aabb[:, 2:3] - aabb[:, 0:1]) * (aabb[:, 3:4] - aabb[:, 1:2])
+    # occupancy_rate = (n_touched.view(-1,1) / (bbox_occupied_pixels + 1)).view(-1)
+    # visibility_filter = (radii > 0) & (occupancy_rate > opt.occupancy_rate) if pipe.occlusion_awared_denom else (radii > 0)
+    visibility_filter = radii > 0
     rets = {
         "render_all": rendered_image,
         "render": rendered_image[:3, :, :],
@@ -133,7 +139,7 @@ def render(viewpoint_camera,
     render_dist = torch.nan_to_num(render_dist)
     
     render_normal = rendered_image[3:6, ...] # normal in the view space
-    render_normal = (render_normal.permute(1,2,0) @ (viewpoint_camera.world_view_transform[:3,:3].T)).permute(2,0,1)
+    # render_normal = (render_normal.permute(1,2,0) @ (viewpoint_camera.world_view_transform[:3,:3].T)).permute(2,0,1) # 世界坐标系
     
     render_depth = rendered_image[6:7, ...]
     render_depth = torch.nan_to_num(render_depth, 0, 0)
@@ -147,24 +153,35 @@ def render(viewpoint_camera,
     surf_depth = render_depth_expected * (1-pipe.depth_ratio) + (pipe.depth_ratio) * render_depth_median
     
     render_curvature = rendered_image[11:12]
-    render_curvature = torch.nan_to_num(render_curvature,0,0)
+    render_curvature = torch.nan_to_num(render_curvature, 0, 0)
     render_curvature_dist = rendered_image[12:13]
     render_curvature_dist = torch.nan_to_num(render_curvature_dist, 0, 0)
     
-    surf_normal, surf_point = depth_to_normal(viewpoint_camera, surf_depth)
+    surf_normal, surf_point = depth_to_normal(viewpoint_camera, surf_depth) # (W,H,3)
+    surf_distance = torch.nan_to_num(torch.sum(surf_normal * surf_point, dim=-1), 0, 0) # <= 0
     surf_normal = surf_normal.permute(2,0,1)
     surf_point = surf_point.permute(2,0,1)
-    surf_normal = surf_normal * (render_alpha).detach()
+    alpha_mask = viewpoint_camera.get_mask if viewpoint_camera.get_mask is not None else torch.ones_like(render_alpha)
+    surf_normal = surf_normal * (render_alpha).detach() * alpha_mask
+    s3_s1s2 = rendered_image[13:14]
     rets.update({
             'render_alpha': render_alpha,
             'render_normal': render_normal,
             'surf_normal': surf_normal,
+            'surf_distance': surf_distance,
             'surf_point': surf_point,
-            'render_depth': surf_depth,
+            'render_depth': render_depth_expected,
+            'surf_depth': surf_depth,
             'render_dist': render_dist,
             'render_curvature': render_curvature,
             'render_curvature_dist': render_curvature_dist,
+            's3_s1s2': s3_s1s2
     })
+    
+    if app_model is not None and pc.use_app:
+        appear_ab = app_model.appear_ab[torch.tensor(viewpoint_camera.uid).cuda()]
+        app_image = torch.exp(appear_ab[0]) * rendered_image[:3, :, :] + appear_ab[1]
+        rets.update({"app_image": app_image})   
     
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
