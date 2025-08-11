@@ -1,4 +1,4 @@
-# Quadratic Gaussian Splatting: High Quality Surface Reconstruction with Second-order Geometric Primitives
+# Quadratic Gaussian Splatting: High Quality Surface Reconstruction with Second-order Geometric Primitives 
 
 $$
 \color{Pink}{\Huge{\textsf{ICCV\ 2025}}}
