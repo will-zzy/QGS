@@ -1,5 +1,9 @@
 # Quadratic Gaussian Splatting for Efficient and Detailed Surface Reconstruction
 
+$$
+\color{Orange}{\Huge{\textsf{ICCV\ 2025}}}
+$$
+
 [Project page](https://quadraticgs.github.io/QGS/) | [Paper](https://arxiv.org/pdf/2411.16392) | [Quadric Surfel Rasterizer (python)](./quadratic_demo.py)
 
 <div style="text-align: center;">
