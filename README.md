@@ -1,7 +1,7 @@
-# Quadratic Gaussian Splatting for Efficient and Detailed Surface Reconstruction
+# Quadratic Gaussian Splatting: High Quality Surface Reconstruction with Second-order Geometric Primitives
 
 $$
-\color{Orange}{\Huge{\textsf{ICCV\ 2025}}}
+\color{Pink}{\Huge{\textsf{ICCV\ 2025}}}
 $$
 
 [Project page](https://quadraticgs.github.io/QGS/) | [Paper](https://arxiv.org/pdf/2411.16392) | [Quadric Surfel Rasterizer (python)](./quadratic_demo.py)
@@ -64,7 +64,7 @@ python train.py --conf_path ./config/base.yaml # or DTU.yaml/TNT.yaml
 
 In `base.yaml`, you can adjust all configurable parameters, with most parameters remaining consistent with 2DGS. Furthermore, we have briefly experimented with curvature-related losses, such as curvature distortion loss and curvature flatten loss. Unfortunately, their performance was not satisfactory.
 
-You need to modify the `root_dir` in the `xxx.yaml file to point to your dataset directory, for example:
+You need to modify the `root_dir` in the `xxx.yaml` file to point to your dataset directory, for example:
 ```
 xxx.yaml
 └── root_dir
