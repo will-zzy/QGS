@@ -61,15 +61,3 @@ knn_points(const torch::Tensor& points_1, const torch::Tensor& points_2)
   );
   return std::make_tuple(knn_indices, dists);
 }
-
-// std::tuple<torch::Tensor, torch::Tensor>
-// check_mv_consistency(
-//   const torch::Tensor& xyzs, 
-//   const torch::Tensor& normals, 
-//   const torch::Tensor& , 
-  
-// )
-// {
-
-
-// }

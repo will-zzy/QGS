@@ -151,10 +151,7 @@ if __name__ == '__main__':
     parser.add_argument('--visualize_threshold', type=float, default=10)
     args, extras = parser.parse_known_args()
     config = OmegaConf.load(args.conf_path)
-    if args.model_path is not None:
-        model_path = args.model_path
-    else:
-        model_path = config.load_model_path
+    model_path = config.load_model_path
     config = load_config(f"{model_path}/config.yaml", cli_args=extras)
     print("Evaluate " + config.model_path)
     

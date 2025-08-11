@@ -645,7 +645,7 @@ renderCUDA(
 				r0_2 = 1 / (cos2_sin2.x * rscale_o_j.x + cos2_sin2.y * rscale_o_j.y);
 
 				// if the Gaussian weight at the intersection is too small, skip it.
-				if (s_2 <= r0_2 * sigma * sigma / 1){
+				if (s_2 <= r0_2 * sigma * sigma){
 					intersect = true;
 					break;
 				}	
@@ -663,13 +663,8 @@ renderCUDA(
 			// and its exponential falloff from mean.
 			// Avoid numerical instabilities (see paper appendix). 
 			float alpha = min(0.99f, rscale_o_j.w * exp(power));
-			// float alpha = 1 * exp(-power * power);
-
-			// float alpha = 0.99f;
 			if (alpha < 1.0f / 255.0f)
 				continue;
-			alpha = 1 * exp(-sqrt(sqrt(-power)));
-			done = true;
 			float test_T = T * (1 - alpha);
 			
 			if (test_T < 0.0001f)
@@ -769,7 +764,6 @@ renderCUDA(
 		// add the background 
 		const float distortion_before_normalized = C[DISTORTION_OFFSET];
 		// normalize
-		// distortion /= (1 - T) * (1 - T) + 1e-7;
 
 		final_T[pix_id] = T; // storing A, D1, D2, dist_unnormal
 		if (return_depth){

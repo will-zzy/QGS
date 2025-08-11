@@ -12,9 +12,8 @@ render_path: False
 # case_name: Ignatius
 # case_name: Meetingroom
 case_name: Courthouse
-root_dir: /data1/zzy/public_data/TNT/TNT_GOF/TrainingSet/${case_name}
+root_dir: /home/zzy_group/data/public_data/TNT_GOF/TrainingSet/${case_name}
 
-GT_path:
 pipeline:
   # num_cluster: 1
   # depth_ratio: 1.0
@@ -24,44 +23,55 @@ pipeline:
   # depth_trunc: 3.5
 
   num_cluster: 1
-  depth_ratio: 0.5
+  depth_ratio: 1.0
   mesh_res: 1024
   voxel_size: 0.006
   sdf_trunc: 0.024
-  depth_trunc: 4.5
+  depth_trunc: 10.0
+  occlusion_awared_denom: false
 dataset:
   use_alpha: False
   eval: False
   downsample: 0.5
+  type: iterable
+  ncc_scale: ${dataset.downsample}
 
 optimizer:
   iterations: 60000
   position_lr_max_steps: 60000
-  densification_interval: 400
+  densification_interval: 600
   opacity_reset_interval: 6000
   densify_from_iter: 4000
+  multi_view_weight_from_iter: 9999999
   normal_from_iter: 30000
-  dist_from_iter: 12000
+  dist_from_iter: 15000
   densify_until_iter: 48000
-  reset_opacity_densify_delay: 2
   percent_dense: 0.0001
-  densify_grad_threshold: 0.2
-  curvature_clamp_threshold: -2.0
-  lambda_dist: 10.0
+  multi_view_ncc_weight: 0.0 # 0.15
+  multi_view_geo_weight: 0.0
+  densify_grad_threshold: 0.05
+  curvature_clamp_threshold: -5.0
+  lambda_dist: 0.0
+  reset_opacity_densify_delay: 1
+  lambda_normal: 0.05
 
 model_path: > 
   ${root_dir}/exp/DepthRatio=${pipeline.depth_ratio}_
   DensifyGrad=${optimizer.densify_grad_threshold}_
   CurvClamp=${optimizer.curvature_clamp_threshold}_
   Dist=${optimizer.lambda_dist}_
-  Percendent=${optimizer.percent_dense}
+  Percendent=${optimizer.percent_dense}_
+  multi_view_ncc_weight=${optimizer.multi_view_ncc_weight}_
+  lambda_normal=${optimizer.lambda_normal}_
+  New_densifyInterval=600_normalFrom30000_densifyUntil48000_woMulti
 # path to pre-trained model
-load_model_path: ${root_dir}/exp/DepthRatio=1.0_DensifyGrad=0.2_CurvClamp=-5.0_Dist=500.0_Percendent=0.0001
+load_model_path: ${model_path}
+# load_model_path: ${root_dir}/${case_name}/exp/DepthRatio=1.0_DensifyGrad=0.1_CurvClamp=0.0_Dist=10.0_Percendent=0.0005_Train_Realease_ReTest_normalFrom30000
 
 # eval mesh
 # dataset_GT_path: the path to directory containing xxx_trans.txt, xxx.ply, xxx.json, xxx_COLMAP_SfM.log
-dataset_GT_path: /data1/zzy/public_data/TNT/TNT_GOF/TrainingSet/GT/${case_name}
+dataset_GT_path: /home/zzy_group/data/public_data/TNT_GOF/GT/${case_name}
 traj_path: ${root_dir}/${case_name}_COLMAP_SfM.log
 # mesh_ply_path: the path to directory containing mesh to evaluate
-mesh_ply_path: ${load_model_path}/train/ours_30000/fuse_post.ply
-eval_output_path: ${load_model_path}/train/ours_30000
+mesh_ply_path: ${load_model_path}/train/ours_60000/fuse_post.ply
+eval_output_path: ${load_model_path}/train/ours_60000

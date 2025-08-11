@@ -1,8 +1,7 @@
 defaults:
   - ./base.yaml
-
-case_name: scan65
-root_dir: /data/public_data/DTU/DTU/${case_name}
+case_name: scan122
+root_dir: /home/zzy_group/data/public_data/DTU/${case_name}
 pipeline:
   depth_ratio: 0.0
   mesh_res: 1024
@@ -13,22 +12,22 @@ dataset:
   use_alpha: True
   eval: False
   type: all
-
 optimizer:
-  percent_dense: 0.0003
-  densify_grad_threshold: 1.2
+  percent_dense: 0.0001
+  densify_grad_threshold: 1.0
+  multi_view_weight_from_iter: 7000
+  multi_view_weight_until_iter: 30000
+  normal_from_iter: 7000
+  multi_view_ncc_weight: 0.5 # 0.15
+  multi_view_geo_weight: 0.03
   curvature_clamp_threshold: -5.0
-  multi_view_weight_from_iter: 30000
   lambda_dist: 10000.0
+  lambda_normal: 0.03
+model_path: >
+  ${root_dir}/exp/DepthRatio=${pipeline.depth_ratio}_ DensifyGrad=${optimizer.densify_grad_threshold}_ CurvClamp=${optimizer.curvature_clamp_threshold}_ Dist=${optimizer.lambda_dist}_ Percendent=${optimizer.percent_dense}_ multiW=${optimizer.multi_view_ncc_weight}_ Train_Realease_all
 
-model_path: > 
-  ${root_dir}/exp/DepthRatio=${pipeline.depth_ratio}_
-  DensifyGrad=${optimizer.densify_grad_threshold}_
-  CurvClamp=${optimizer.curvature_clamp_threshold}_
-  Dist=${optimizer.lambda_dist}_
-  Percendent=${optimizer.percent_dense}
-  _without_TS_PR
 # path to pre-trained model
-load_model_path: ${root_dir}/exp/DepthRatio=1.0_DensifyGrad=1.0_CurvClamp=-5.0_Dist=10000.0_Percendent=0.0003_without_TS_PR
+# load_model_path: ${root_dir}/exp/DepthRatio=0.0_DensifyGrad=1.2_CurvClamp=-5.0_Dist=10000.0_Percendent=0.0003_without_TS_PR
+load_model_path: ${model_path}
 # path to directory containing "Calibration, Cleaned, ObsMask, Points, Rectified, Surfaces"
-dataset_GT_path: /data1/zzy/public_data/DTU/SampleSet/MVS_Data
+dataset_GT_path: /home/zzy_group/data/public_data/DTU/SampleSet/MVS_Data

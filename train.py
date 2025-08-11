@@ -73,9 +73,6 @@ def gen_virtul_cam(cam, trans_noise=1.0, deg_noise=15.0):
                         trans=np.array([0.0, 0.0, 0.0]), scale=1.0, 
                         preload_img=False, data_device = "cuda")
     return virtul_cam
-
-
-
 def training(config, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
     first_iter = 0
     dataset = config.dataset
@@ -102,6 +99,7 @@ def training(config, testing_iterations, saving_iterations, checkpoint_iteration
     for idx, camera in enumerate(scene.getTrainCameras() + scene.getTestCameras()):
         camera.idx = idx
 
+
     viewpoint_stack = None
     ema_loss_for_log = 0.0
     ema_dist_for_log = 0.0
@@ -125,6 +123,8 @@ def training(config, testing_iterations, saving_iterations, checkpoint_iteration
         if not viewpoint_stack:
             viewpoint_stack = scene.getTrainCameras().copy()
         viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
+        alpha_map = viewpoint_cam.get_mask
+        
         
         gt_image, gt_image_gray = viewpoint_cam.get_image()
             
@@ -140,17 +140,13 @@ def training(config, testing_iterations, saving_iterations, checkpoint_iteration
                             kernel_size=dataset.kernel_size, stop_z_gradient = False, return_depth=return_depth, return_normal=return_normal)
         rendering, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         
-        image = rendering
-        ssim_loss = (1.0 - ssim(image, gt_image))
         if dataset.use_alpha:
             weight = viewpoint_cam.get_mask
             gt_image = gt_image * weight
         
-        if 'app_image' in render_pkg and ssim_loss < 0.5:
-            app_image = render_pkg['app_image']
-            Ll1 = l1_loss(app_image, gt_image)
-        else:
-            Ll1 = l1_loss(image, gt_image)
+        image = rendering
+        ssim_loss = (1.0 - ssim(image, gt_image))
+        Ll1 = l1_loss(image, gt_image)
         image_loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * ssim_loss
         loss = image_loss.clone()
         
@@ -166,31 +162,30 @@ def training(config, testing_iterations, saving_iterations, checkpoint_iteration
         
         
         
-        
         if iteration > opt.normal_from_iter:
-            weight = opt.single_view_weight
+            weight = opt.lambda_normal
             normal = render_pkg["render_normal"]
             depth_normal = render_pkg["surf_normal"]
             
-            rend_curvature_log = torch.clamp_max(torch.log(torch.clamp_min(torch.nan_to_num(render_pkg["render_curvature"].squeeze(),0.0001), 0.0001)), opt.curvature_clamp_threshold)
-            image_weight = 1 - torch.sigmoid(rend_curvature_log)
+            
             
             if not opt.wo_image_weight:
-                # normal_loss = weight * (image_weight * (((depth_normal - normal)).abs().sum(0))).mean()
+                image_weight = (1.0 - get_img_grad_weight(gt_image))
+                image_weight = (image_weight).clamp(0, 1).detach() ** 2
                 normal_loss = weight * (image_weight.detach() * (1 - (normal * depth_normal)).sum(dim=0)[None]).mean()
             else:
-                # normal_loss = weight * (((depth_normal - normal)).abs().sum(0)).mean()
+                rend_curvature_log = torch.clamp_max(torch.log(torch.clamp_min(torch.nan_to_num(render_pkg["render_curvature"].squeeze(),0.0001), 0.0001)), opt.curvature_clamp_threshold)
+                image_weight = 1 - torch.sigmoid(rend_curvature_log)
                 normal_loss = weight * (image_weight.detach() * (1 - (normal * depth_normal)).sum(dim=0)[None]).mean()
                 
             loss += normal_loss
         
         
         if dataset.use_alpha:
-            alpha_map = viewpoint_cam.get_mask
             loss += 0.05 * torch.abs(alpha_map.permute(1,2,0) - render_pkg["render_alpha"].permute(1,2,0)).mean()
         
         # Borrowed from PGSR
-        if iteration > opt.multi_view_weight_from_iter:
+        if iteration > opt.multi_view_weight_from_iter and iteration < opt.multi_view_weight_until_iter:
             # if iteration > opt.multi_view_weight_from_iter and iteration % 10 == 0:
             nearest_cam = None if len(viewpoint_cam.nearest_id) == 0 else scene.getTrainCameras()[random.sample(viewpoint_cam.nearest_id,1)[0]]
             use_virtul_cam = False
@@ -206,9 +201,10 @@ def training(config, testing_iterations, saving_iterations, checkpoint_iteration
                 geo_weight = opt.multi_view_geo_weight
                 ## compute geometry consistency mask and loss
                 H, W = render_pkg['surf_depth'].squeeze().shape
+                device = render_pkg['surf_depth'].device
                 ix, iy = torch.meshgrid(
-                    torch.arange(W), torch.arange(H), indexing='xy')
-                pixels = torch.stack([ix, iy], dim=-1).float().to(render_pkg['surf_depth'].device)
+                    torch.arange(W, device=device).float() + 0.5, torch.arange(H, device=device).float() + 0.5, indexing='xy')
+                pixels = torch.stack([ix, iy], dim=-1)
 
                 nearest_render_pkg = render(nearest_cam, gaussians, pipe, opt, bg, kernel_size=dataset.kernel_size, stop_z_gradient = False, return_depth=True, return_normal=True)
 
@@ -234,28 +230,6 @@ def training(config, testing_iterations, saving_iterations, checkpoint_iteration
                     d_mask = d_mask
                     weights = torch.ones_like(pixel_noise)
                     weights[~d_mask] = 0
-                # if iteration % 200 == 0:
-                #     gt_img_show = ((gt_image).permute(1,2,0).clamp(0,1)[:,:,[2,1,0]]*255).detach().cpu().numpy().astype(np.uint8)
-                #     if 'app_image' in render_pkg:
-                #         img_show = ((render_pkg['app_image']).permute(1,2,0).clamp(0,1)[:,:,[2,1,0]]*255).detach().cpu().numpy().astype(np.uint8)
-                #     else:
-                #         img_show = ((image).permute(1,2,0).clamp(0,1)[:,:,[2,1,0]]*255).detach().cpu().numpy().astype(np.uint8)
-                #     normal_show = (((rend_normal+1.0)*0.5).permute(1,2,0).clamp(0,1)*255).detach().cpu().numpy().astype(np.uint8)
-                #     depth_normal_show = (((depth_normal+1.0)*0.5).permute(1,2,0).clamp(0,1)*255).detach().cpu().numpy().astype(np.uint8)
-                #     d_mask_show = (weights.float()*255).detach().cpu().numpy().astype(np.uint8).reshape(H,W)
-                #     d_mask_show_color = cv2.applyColorMap(d_mask_show, cv2.COLORMAP_JET)
-                #     depth = render_pkg['render_depth'].squeeze().detach().cpu().numpy()
-                #     depth_i = (depth - depth.min()) / (depth.max() - depth.min() + 1e-20)
-                #     depth_i = (depth_i * 255).clip(0, 255).astype(np.uint8)
-                #     depth_color = cv2.applyColorMap(depth_i, cv2.COLORMAP_JET)
-                #     image_weight = image_weight.detach().cpu().numpy()
-                #     image_weight = (image_weight * 255).clip(0, 255).astype(np.uint8)
-                #     image_weight_color = cv2.applyColorMap(image_weight, cv2.COLORMAP_JET)
-                #     row0 = np.concatenate([gt_img_show, img_show, depth_normal_show], axis=1)
-                #     row1 = np.concatenate([d_mask_show_color, depth_color, image_weight_color], axis=1)
-                #     image_to_show = np.concatenate([row0, row1], axis=0)
-                #     cv2.imwrite(os.path.join(debug_path, "%05d"%iteration + "_" + viewpoint_cam.image_name + ".jpg"), image_to_show)
-
                 if d_mask.sum() > 0:
                     geo_loss = geo_weight * ((weights * pixel_noise)[d_mask]).mean()
                     loss += geo_loss
@@ -276,25 +250,20 @@ def training(config, testing_iterations, saving_iterations, checkpoint_iteration
                             
                             H, W = gt_image_gray.squeeze().shape
                             pixels_patch = ori_pixels_patch.clone()
-                            pixels_patch[:, :, 0] = 2 * pixels_patch[:, :, 0] / (W - 1) - 1.0
-                            pixels_patch[:, :, 1] = 2 * pixels_patch[:, :, 1] / (H - 1) - 1.0
-                            ref_gray_val = F.grid_sample(gt_image_gray.unsqueeze(1), pixels_patch.view(1, -1, 1, 2), align_corners=True)
+                            pixels_patch[:, :, 0] = 2 * pixels_patch[:, :, 0] / W - 1.0
+                            pixels_patch[:, :, 1] = 2 * pixels_patch[:, :, 1] / H - 1.0
+                            ref_gray_val = F.grid_sample(gt_image_gray.unsqueeze(1), pixels_patch.view(1, -1, 1, 2), align_corners=False)
                             ref_gray_val = ref_gray_val.reshape(-1, total_patch_size)
 
                             ref_to_neareast_r = nearest_cam.world_view_transform[:3,:3].transpose(-1,-2) @ viewpoint_cam.world_view_transform[:3,:3] 
                             ref_to_neareast_t = -ref_to_neareast_r @ viewpoint_cam.world_view_transform[3,:3] + nearest_cam.world_view_transform[3,:3] # source坐标系下，ref相机的位置
 
                         ## compute Homography
-                        # ref_local_n = render_pkg["render_normal"].permute(1,2,0)
                         ref_local_n = render_pkg["surf_normal"].permute(1,2,0)
                         ref_local_n = ref_local_n.reshape(-1,3)[valid_indices]
 
                         ref_local_d = render_pkg['surf_distance'].squeeze()
                         ref_local_d[torch.abs(ref_local_d) < 1e-5] = 1e-5
-                        # rays_d = viewpoint_cam.get_rays()
-                        # rendered_normal2 = render_pkg["rendered_normal"].permute(1,2,0).reshape(-1,3)
-                        # ref_local_d = render_pkg['plane_depth'].view(-1) * ((rendered_normal2 * rays_d.reshape(-1,3)).sum(-1).abs())
-                        # ref_local_d = ref_local_d.reshape(*render_pkg['plane_depth'].shape)
 
                         ref_local_d = ref_local_d.reshape(-1)[valid_indices]
                         H_ref_to_neareast = ref_to_neareast_r[None] + \
@@ -305,10 +274,10 @@ def training(config, testing_iterations, saving_iterations, checkpoint_iteration
                         
                         ## compute neareast frame patch
                         grid = patch_warp(H_ref_to_neareast.reshape(-1,3,3), ori_pixels_patch)
-                        grid[:, :, 0] = 2 * grid[:, :, 0] / (W - 1) - 1.0
-                        grid[:, :, 1] = 2 * grid[:, :, 1] / (H - 1) - 1.0
+                        grid[:, :, 0] = 2 * grid[:, :, 0] / W - 1.0
+                        grid[:, :, 1] = 2 * grid[:, :, 1] / H - 1.0
                         _, nearest_image_gray = nearest_cam.get_image()
-                        sampled_gray_val = F.grid_sample(nearest_image_gray[None], grid.reshape(1, -1, 1, 2), align_corners=True)
+                        sampled_gray_val = F.grid_sample(nearest_image_gray[None], grid.reshape(1, -1, 1, 2), align_corners=False)
                         sampled_gray_val = sampled_gray_val.reshape(-1, total_patch_size)
                         
                         ## compute loss
@@ -321,16 +290,12 @@ def training(config, testing_iterations, saving_iterations, checkpoint_iteration
                             ncc_loss = ncc_weight * ncc.mean()
                             loss += ncc_loss
 
-        
-        
-        
         loss.backward()
         
         iter_end.record()
         radii = render_pkg["radii"]
         
         # Output the images from the training process.
-        render_curvature_min_max=[]
         with torch.no_grad():
             if (iteration) % 50 == 0:
                 image_write = torch.clamp(render_pkg["render"], 0.0, 1.0).permute(1,2,0)
@@ -344,7 +309,7 @@ def training(config, testing_iterations, saving_iterations, checkpoint_iteration
                 render_curvature_log_write = torch.log(render_curvature_write + torch.nan_to_num(render_curvature_write, 0.0).min()+1e-7)
                 
                 
-                render_curvature = render_pkg["render_curvature"].permute(1,2,0)
+                render_curvature = torch.abs(render_pkg["render_curvature"].permute(1,2,0))
                 render_curvature_log_write = torch.log(render_curvature)
                 
                 
@@ -355,27 +320,10 @@ def training(config, testing_iterations, saving_iterations, checkpoint_iteration
                 render_normal_write = (render_normal_write.detach().cpu().numpy()*255).astype(np.uint8)
                 surf_normal_write = (surf_normal_write.detach().cpu().numpy()*255).astype(np.uint8)
                 render_curvature_write = get_grayscale_image(render_curvature_write, data_range=None,cmap='jet')
-                # render_curvature_min_max.append(render_curvature_log_write.min())
-                # render_curvature_min_max.append(render_curvature_log_write.max())
-                # render_curvature_min_max.append(render_curvature_log_write.median())
-                
-                # img_grad_write = get_grayscale_image(image_weight,data_range=None,cmap='jet')
-                curv_mask = 1 - torch.sigmoid(torch.log(render_pkg["render_curvature"].permute(1,2,0)))
-                curv_mask_write = get_grayscale_image(curv_mask, data_range=None,cmap='jet')
                 
                 render_curvature_log_write = get_grayscale_image(render_curvature_log_write, data_range=None,cmap='jet')
-                # s3_s1s2_write = get_grayscale_image(torch.log(render_pkg["s3_s1s2"].permute(1,2,0)), data_range=None,cmap='jet')
                 output_list = {
                     "rgb": image_write,
-                    "depth": depth_write,
-                    "alpha_map":alpha_write,
-                    "render_normal": render_normal_write,
-                    "surf_normal": surf_normal_write,
-                    # "curvature": render_curvature_write,
-                    "curvature_log": render_curvature_log_write,
-                    # "img_grad":img_grad_write,
-                    # "curvature_mask":curv_mask_write,
-                    # "s3_s1s2":s3_s1s2_write
                 }
                 if return_depth:
                     output_list.update({"depth": depth_write,
@@ -440,10 +388,6 @@ def training(config, testing_iterations, saving_iterations, checkpoint_iteration
                 gaussians.optimizer.step()
                 gaussians.optimizer.zero_grad(set_to_none = True)
 
-            # if (iteration in checkpoint_iterations):
-            #     print("\n[ITER {}] Saving Checkpoint".format(iteration))
-            #     torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
-            
     
 def prepare_output_and_logger(args):    
     if not args.model_path:
@@ -523,7 +467,7 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--test_iterations", nargs="+", type=int, default= [i * 500 for i in range(0, 60)])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default= [7_000, 30_000])
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 30_000, 45_000, 60_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
@@ -541,7 +485,7 @@ if __name__ == "__main__":
     print("Optimizing " + args.model_path)
 
     # Initialize system state (RNG)
-    # safe_state(args.quiet)
+    safe_state(args.quiet)
 
     random.seed(0)
     np.random.seed(0)
@@ -551,15 +495,23 @@ if __name__ == "__main__":
     # # Start GUI server, configure and run training
     # network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    training(config, args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from)
+    # training(config, args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from)
 
     # All done
     print("\nTraining complete.")
     
     model_path = config.model_path
+    # print("python render.py --conf_path " + model_path)
+    # os.system(f"python render.py --conf_path {model_path}/config.yaml")
     
-    os.system(f"python render.py --conf_path {model_path}/config.yaml")
     
-    os.system(f"python ./scripts/eval_tnt/run.py --conf_path {model_path}/config.yaml")
+    if config.case_name[:4] == 'scan':
+        print("python ./scripts/eval_dtu/eval.py --conf_path " + model_path)
+        os.system(f"python ./scripts/eval_dtu/eval.py --conf_path {model_path}/config.yaml")
+    
+    else:
+        
+        print("python ./scripts/eval_tnt/run.py --conf_path " + model_path)
+        os.system(f"python ./scripts/eval_tnt/run.py --conf_path {model_path}/config.yaml")
     
     

@@ -31,7 +31,7 @@ __device__ __inline__ void updateDistortionMap(
 	dist2 += mapped_max_t * mapped_max_t * w;
 
     float error_curv = curvature * curvature * A + curv2 - 2 * curvature * curv1;
-    // all_map[CURV_DISTORTION_OFFSET] += error_curv * w;
+    all_map[CURV_DISTORTION_OFFSET] += error_curv * w;
 
     curv1 += curvature * w;
     curv2 += curvature * curvature * w;
@@ -151,8 +151,6 @@ renderkBufferCUDA(
         if (sort_num == 0)
             return;
         --sort_num;
-
-
         float test_T = T * (1 - sort_alphas[0]);
 
         if (test_T < 0.0001f) {
@@ -292,7 +290,6 @@ renderkBufferCUDA(
 				s = QuadraticCurveGeodesicDistanceOriginal(p_norm, a);
 				s_2 = s * s;
 				r0_2 = __fdividef(1.0f, (cos2_sin2.x * rscale_o_j.x + cos2_sin2.y * rscale_o_j.y));
-				// r0_2 = 1 / (cos2_sin2.x * rscale_o_j.x + cos2_sin2.y * rscale_o_j.y);
 				// if the Gaussian weight at the intersection is too small, skip it.
 				if (s_2 <= r0_2 * sigma * sigma){
 					intersect = true;
@@ -351,8 +348,6 @@ renderkBufferCUDA(
             
 
 			float alpha = min(0.99f, rscale_o_j.w * exp(power));
-			// float alpha = 1 * exp(-sqrt(-power));
-			// done = true;
 			if (alpha < 1.0f / 255.0f)
 				continue;
 
@@ -398,7 +393,7 @@ renderkBufferCUDA(
 			for (int ch = 0; ch < CHANNELS; ch++)
 				out_colors[(NORMAL_OFFSET + ch) * H * W + pix_id] = C[NORMAL_OFFSET+ch];
 			out_colors[CURVATURE_OFFSET * H * W + pix_id] = C[CURVATURE_OFFSET];
-			// out_colors[CURV_DISTORTION_OFFSET * H * W + pix_id] = C[CURV_DISTORTION_OFFSET];
+			out_colors[CURV_DISTORTION_OFFSET * H * W + pix_id] = C[CURV_DISTORTION_OFFSET];
 		}
 
 		final_T[pix_id + 4 * H * W] = curv1;
@@ -607,10 +602,6 @@ renderkBufferBackwardCUDA(
 		float p_norm_2 = px_2 + py_2 + 1e-7;
 		float p_norm = __fsqrt_rn(p_norm_2);
 		float2 cos2_sin2 = {__fdividef(px_2, p_norm_2), __fdividef(py_2, p_norm_2)};
-		// const float power = __fdividef(-s * s, (2.0f * r0_2));
-		// float p_norm_2 = p.x * p.x + p.y * p.y + 1e-7;
-		// float p_norm = __fsqrt_rn(p_norm_2);
-		// float2 cos2_sin2 = {p.x * p.x / p_norm_2, p.y * p.y / p_norm_2};
 		const float alpha = min(0.99f, rscale_o_blend.w * G);
 		float test_T = T * (1 - alpha);
 		if(test_T  < 0.0001f){
@@ -626,8 +617,6 @@ renderkBufferBackwardCUDA(
 			acc_colors[ch] += c * weight;
 			
 			float accum_rec_ch = __fdividef((final_color[ch] - acc_colors[ch]), test_T);
-			// float accum_rec_ch = (final_color[ch] - acc_colors[ch]) / test_T;
-			// float accum_rec_ch = (final_color[ch] - acc_colors[ch]) / test_T;
 			const float dL_dchannel = dL_dpixel[ch];
 
 			dL_dalpha += (c - accum_rec_ch) * dL_dchannel;
@@ -715,9 +704,6 @@ renderkBufferBackwardCUDA(
 			float length = __fsqrt_rn(sum_sq);
 			const float rlength = __frcp_rn(length);
 						
-			// float3 point_normal = { point_normal_unnormalized.x * rlength, 
-			// 	   					point_normal_unnormalized.y * rlength, 
-			// 	   					point_normal_unnormalized.z * rlength};
 			point_normal.x = point_normal_unnormalized.x * rlength;
 			point_normal.y = point_normal_unnormalized.y * rlength;
 			point_normal.z = point_normal_unnormalized.z * rlength;
@@ -873,10 +859,6 @@ renderkBufferBackwardCUDA(
 
 		dL_dog.x += dL_dx.x;
 		dL_dog.y += dL_dx.y; 
-
-		// dL_dog.x = min(max(dL_dog.x, -0.2), 0.2);
-		// dL_dog.y = min(max(dL_dog.y, -0.2), 0.2);
-		// dL_dog.z = min(max(dL_dog.z, -0.2), 0.2);
 
 		dL_drg.x += dL_dx.x * depth;
 		dL_drg.y += dL_dx.y * depth;

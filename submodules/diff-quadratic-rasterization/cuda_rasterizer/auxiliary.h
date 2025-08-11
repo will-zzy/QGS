@@ -89,17 +89,7 @@ __forceinline__ __device__ void getRect(const float2 p, float2 max_radius, uint2
 		min(grid.y, max((int)0, (int)ceilf((p.y + max_radius.y) / BLOCK_Y)))
 	};
 }
-// __forceinline__ __device__ void getRect(const float2 p, uint2 max_radius, uint2& rect_min, uint2& rect_max, dim3 grid)
-// {
-// 	rect_min = {
-// 		min(grid.x, max((int)0, (int)((p.x - max_radius.x) / BLOCK_X))),
-// 		min(grid.y, max((int)0, (int)((p.y - max_radius.y) / BLOCK_Y)))
-// 	};
-// 	rect_max = {
-// 		min(grid.x, max((int)0, (int)((p.x + max_radius.x + BLOCK_X - 1) / BLOCK_X))),
-// 		min(grid.y, max((int)0, (int)((p.y + max_radius.y + BLOCK_Y - 1) / BLOCK_Y)))
-// 	};
-// }
+
 
 __forceinline__ __device__ void getRectPre(const float2 p, const float2 max_radius, float2& rect_min, float2& rect_max)
 {

@@ -83,27 +83,19 @@ class Camera(nn.Module):
         self.original_image, self.image_gray, self.mask = None, None, None
         self.preload_img = self.image_type == "all"
         self.ncc_scale = cam_info.downsample ###
-
-        if self.preload_img:
-            gt_image, gray_image, loaded_mask = process_image(self.image_path, self.resolution, self.ncc_scale)
-            self.original_image = gt_image.to(self.data_device)
-            self.original_image_gray = gray_image.to(self.data_device)
-            if loaded_mask is not None:
-                self.mask = loaded_mask.to(self.data_device)
-        # if self.image_type == "all":
-        #     image = Image.open(self.image_path)
-        #     if len(image.split()) > 3:
-        #         loaded_mask = PILtoTorch(image.split()[3], resolution)
-        #         self.gt_alpha_mask = loaded_mask.to(self.data_device)
-        #         resized_image_rgb = torch.cat([PILtoTorch(im, resolution) for im in image.split()[:3]], dim=0)
-        #         if self.use_alpha:
-        #             self.image = (loaded_mask * resized_image_rgb).to(self.data_device)
-        #         else:
-        #             self.image = (resized_image_rgb).to(self.data_device)
-        #     else:
-        #         self.image = PILtoTorch(image, resolution).to(self.data_device)
-        #         self.gt_alpha_mask = torch.ones_like(PILtoTorch(image.split()[0], self.resolution)).to(self.data_device)
         
+        gt_image, gray_image, loaded_mask = process_image(self.image_path, self.resolution, self.ncc_scale)
+        if self.preload_img:
+            device = self.data_device
+        else:
+            device = "cpu"
+            
+        self.original_image = gt_image.to(device)
+        self.original_image_gray = gray_image.to(device)
+        if loaded_mask is not None:
+            self.mask = loaded_mask.to(device)
+        else:
+            self.mask = torch.ones_like(self.original_image[0], device=device)
 
         self.zfar = 100.0
         self.znear = 0.01
@@ -140,8 +132,7 @@ class Camera(nn.Module):
         if self.preload_img:
             return self.original_image, self.original_image_gray
         else:
-            gt_image, gray_image, _ = process_image(self.image_path, self.resolution, self.ncc_scale)
-            return gt_image.cuda(), gray_image.cuda()
+            return self.original_image.cuda(), self.original_image_gray.cuda()
 
     @property
     def get_mask(self):
@@ -158,11 +149,11 @@ class Camera(nn.Module):
     def get_rays(self, scale=1.0):
         W, H = int(self.image_width/scale), int(self.image_height/scale)
         ix, iy = torch.meshgrid(
-            torch.arange(W), torch.arange(H), indexing='xy')
+            torch.arange(W, device="cuda").float() + 0.5, torch.arange(H, device="cuda").float() + 0.5, indexing='xy')
         rays_d = torch.stack(
                     [(ix-self.Cx/scale) / self.Fx * scale,
                     (iy-self.Cy/scale) / self.Fy * scale,
-                    torch.ones_like(ix)], -1).float().cuda()
+                    torch.ones_like(ix)], -1)
         return rays_d  
     
     def get_k(self, scale=1.0):

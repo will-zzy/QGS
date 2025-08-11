@@ -409,7 +409,6 @@ renderCUDA(
 		for (int i = 0; i < C; i++){
 			dL_dpixel[i] = dL_dpixels[i * H * W + pix_id];
 		}
-		// printf("dL_dpixel of pixel %d,%d is :%.12f,%.12f,%.12f\n",pix.x, pix.y, dL_dpixel[0],dL_dpixel[1],dL_dpixel[2]);
 			
 		for (int i = 0; i < 3; i++)
 			dL_dnormal2D[i] = dL_dpixels[(C+i) * H * W + pix_id];
@@ -524,13 +523,10 @@ renderCUDA(
 					root = -BB * r2AA + sign * discriminant_sq_r2AA;
 				}
 
-				// p = {cam_pos_local.x + root * cam_ray_local.x, cam_pos_local.y + root * cam_ray_local.y};
 				p = {
 					__fmaf_rn(root, cam_ray_local.x, cam_pos_local.x),
 					__fmaf_rn(root, cam_ray_local.y, cam_pos_local.y)
 				};
-				// printf("p.x,p.y %d,%d is :%.12f,%.12f\n",pix.x, pix.y, p.x, p.y);
-				// p_norm_2 = p.x * p.x + p.y * p.y + 1e-7;
 				px_2 = p.x * p.x;
 				py_2 = p.y * p.y;
 				
@@ -540,7 +536,6 @@ renderCUDA(
 				a = GetParabolaA(cos2_sin2, rscale_sign_j, scale_j);
 				s = QuadraticCurveGeodesicDistanceOriginal(p_norm, a);
 				s_2 = s * s;
-				// r0_2 = 1 / (cos2_sin2.x * rscale_o_j.x + cos2_sin2.y * rscale_o_j.y);
 				r0_2 = __fdividef(1.0f, (cos2_sin2.x * rscale_o_j.x + cos2_sin2.y * rscale_o_j.y));
 
 				if (s_2 <= r0_2 * sigma * sigma){
@@ -552,23 +547,15 @@ renderCUDA(
 			if (!intersect)
 				continue;
  
-			// printf("a %d,%d is :%.12f\n",pix.x, pix.y, a);
-			// printf("s %d,%d is :%.12f\n",pix.x, pix.y, s);
-			// printf("r0_2 %d,%d is :%.12f\n",pix.x, pix.y, r0_2);
-			// float power = -s_2 / (2 * r0_2);
 			float power = __fdividef(-s_2, (2.0f * r0_2));
 			float depth = root;
 
- 
-			// const float G = exp(power);
 			const float G = __expf(power);
-			// printf("Gaussians of pixel %d,%d is :%.12f\n",pix.x, pix.y, G);
 			const float alpha = min(0.99f, rscale_o_j.w * G);
 
 			if (alpha < 1.0f / 255.0f)
 				continue;
 
-			// T = T / (1.f - alpha);
 			T = __fdividef(T, 1.f - alpha);
 			const float weight = alpha * T;
  
@@ -592,8 +579,6 @@ renderCUDA(
 				// many that were affected by this Gaussian.
 				atomicAdd(&(dL_dcolors[global_id * C + ch]), weight * dL_dchannel);
 			}
-			// printf("dL_dcolors of pixel %d,%d is :%.12f,%.12f,%.12f\n",pix.x, pix.y, dL_dcolors[global_id * C + 0],dL_dcolors[global_id * C + 1],dL_dcolors[global_id * C + 2]);
-			// printf("dL_dpixel of pixel %d,%d is :%.12f,%.12f,%.12f\n",pix.x, pix.y, dL_dpixel[0],dL_dpixel[1],dL_dpixel[2]);
 			
 			
 			float dL_dweight = 0.0f;
@@ -643,13 +628,10 @@ renderCUDA(
 			// depth map to alpha
 			accum_depth_rec = last_alpha * last_depth + one_minus_last_alpha * accum_depth_rec;
 			last_depth = max_t;
-			// dL_dalpha += (max_t - accum_depth_rec) * dL_ddepth;
 			dL_dalpha = __fmaf_rn((max_t - accum_depth_rec), dL_ddepth, dL_dalpha);
 
 			// alpha map to alpha
-			// accum_alpha_rec = last_alpha * 1.0 + one_minus_last_alpha * accum_alpha_rec;
 			accum_alpha_rec = __fmaf_rn(one_minus_last_alpha, accum_alpha_rec, last_alpha * 1.f);
-			// dL_dalpha += (1 - accum_alpha_rec) * dL_daccum;
 			dL_dalpha = __fmaf_rn((1.f - accum_alpha_rec), dL_daccum, dL_dalpha);
 
 			// normal regularzation
@@ -665,7 +647,6 @@ renderCUDA(
 			}
 
 			
-			// float length = sqrt(point_normal_unnormalized.x * point_normal_unnormalized.x + point_normal_unnormalized.y * point_normal_unnormalized.y + point_normal_unnormalized.z * point_normal_unnormalized.z + 1e-7);
 			float sum_sq = __fmaf_rn(point_normal_unnormalized.x, point_normal_unnormalized.x,
 						   __fmaf_rn(point_normal_unnormalized.y, point_normal_unnormalized.y,
 						   __fmaf_rn(point_normal_unnormalized.z, point_normal_unnormalized.z, 1e-7f)));
@@ -674,11 +655,6 @@ renderCUDA(
 			float3 point_normal = { point_normal_unnormalized.x * rlength, 
 									point_normal_unnormalized.y * rlength, 
 									point_normal_unnormalized.z * rlength};
-			// const float3 normal = { // normal in view space
-			// 	view2gaussian_j[0] * point_normal.x + view2gaussian_j[1] * point_normal.y + view2gaussian_j[2] * point_normal.z,
-			// 	view2gaussian_j[4] * point_normal.x + view2gaussian_j[5] * point_normal.y + view2gaussian_j[6] * point_normal.z,
-			// 	view2gaussian_j[8] * point_normal.x + view2gaussian_j[9] * point_normal.y + view2gaussian_j[10] * point_normal.z,
-			// };
 
 			float nx = __fmaf_rn(view2gaussian_j[0], point_normal.x,
 					   __fmaf_rn(view2gaussian_j[1], point_normal.y,
@@ -730,39 +706,28 @@ renderCUDA(
 			float bg_dot_dpixel = 0;
 			for (int i = 0; i < C; i++)
 				bg_dot_dpixel += bg_color[i] * dL_dpixel[i];
-			// dL_dalpha += (-T_final / (1.f - alpha)) * bg_dot_dpixel;
 			dL_dalpha += __fdividef(-T_final, 1.f - alpha) * bg_dot_dpixel;
 
 			atomicAdd(&(dL_dopacity[global_id]), G * dL_dalpha);
 
-
 			const float dL_dG = rscale_o_j.w * dL_dalpha;
-			// const float dL_ds = dL_dG * (-G * s / r0_2);
-			// const float dL_dr0_2 = dL_dG * (G * (-power / r0_2));
 			const float dL_ds = dL_dG * __fdividef(-G * s, r0_2);
 			const float dL_dr0_2 = dL_dG * (G * __fdividef(-power, r0_2));
 			const float u = 2 * a * p_norm;
-			// const float dL_du = dL_ds * sqrt(u * u + 1) / (2 * a);
 			const float dL_du = dL_ds * __fdividef(__fsqrt_rn(u * u + 1), (2 * a));
-			// float dL_da = 2 * dL_du * p_norm - dL_ds * s / a;
 			float dL_da = 2 * dL_du * p_norm - dL_ds * __fdividef(s, a);
 			float rcos_s_sin_s_2_2 = r0_2 * r0_2;
 			const float dL_dcos_2 = dL_da * scale_j.z * rscale_sign_j.x + dL_dr0_2 * (-rscale_o_j.x * rcos_s_sin_s_2_2);
 			const float dL_dsin_2 = dL_da * scale_j.z * rscale_sign_j.y + dL_dr0_2 * (-rscale_o_j.y * rcos_s_sin_s_2_2);
 
-			// const float rl_1 = 1 / (p_norm);
-			// const float rl_2 = 1 / (p_norm_2);
-			// const float rl_3 = 1 / (p_norm_2 * p_norm);
 			const float rl_1 = __frcp_rn(p_norm);
 			const float rl_2 = __frcp_rn(p_norm_2);
 			const float rl_3 = __frcp_rn(p_norm_2 * p_norm);
 			
 			const float dL_dl = dL_du * (2 * a) + dL_dcos_2 * (-2 * px_2 * rl_3) + dL_dsin_2 * (-2 * py_2 * rl_3);
-			// printf("dL_dl of pixel %d,%d is :%.12f\n",pix.x, pix.y, dL_dl);
 			float3 dL_dx = {0.0f, 0.0f, 0.0f};
 			dL_dx.x = p.x * (dL_dl * rl_1 + dL_dcos_2 * 2 * rl_2);
 			dL_dx.y = p.y * (dL_dl * rl_1 + dL_dsin_2 * 2 * rl_2);
-			// printf("dL_dx of pixel %d,%d is :%.12f,%.12f\n",pix.x, pix.y, dL_dx.x, dL_dx.y);
 			// from normal map
 			dL_dx.x += dL_point_normal_unnormalized.x * 2 * rscale_sign_j.x;
 			dL_dx.y += dL_point_normal_unnormalized.y * 2 * rscale_sign_j.y;
@@ -774,7 +739,6 @@ renderCUDA(
 #endif
 			// splatting to dt
 			float dL_dt = dL_dx.x * cam_ray_local.x + dL_dx.y * cam_ray_local.y;
-			// printf("dL_dt of pixel %d,%d is :%.12f\n",pix.x, pix.y, dL_dt);
 			// distortion to dt
 			dL_dt += dL_dmax_t;
 
@@ -805,7 +769,6 @@ renderCUDA(
 				dL_dBB = dL_dt * (BB * sign * rdiscriminant_sq - 1) * r2AA;
 				dL_dCC = dL_dt * (-sign * rdiscriminant_sq);
 			}
-			// printf("dL_dAA,dL_dBB,dL_dCC of pixel %d,%d is :%.12f,%.12f,%.12f\n",pix.x, pix.y, dL_dAA,dL_dBB,dL_dCC);
 
 			float3 dL_dog = {0.0f, 0.0f, 0.0f};
 			float3 dL_drg = {0.0f, 0.0f, 0.0f};
@@ -822,9 +785,6 @@ renderCUDA(
 
 			dL_drg.x += dL_dx.x * root;
 			dL_drg.y += dL_dx.y * root;
-
-			// printf("dL_dog of pixel %d,%d is :%.12f,%.12f,%.12f\n",pix.x, pix.y, dL_dog.x, dL_dog.y, dL_dog.z);
-			// printf("dL_drg of pixel %d,%d is :%.12f,%.12f,%.12f\n",pix.x, pix.y, dL_drg.x, dL_drg.y, dL_drg.z);
 
 			float3 dL_dscale_221 = {0.0f, 0.0f, 0.0f};
 
@@ -844,8 +804,7 @@ renderCUDA(
  
 			dL_dscale_221.z += dL_da * (rscale_sign_j.x * cos2_sin2.x + rscale_sign_j.y * cos2_sin2.y);
 						  + dL_dBB * (cam_ray_local.z * rscale_4_sign.z)
-						  + dL_dCC * (cam_pos_local.z * rscale_4_sign.z);
-			// printf("dL_dscale_221 of pixel %d,%d is :%.12f,%.12f,%.12f\n",pix.x, pix.y, dL_dscale_221.x, dL_dscale_221.y, dL_dscale_221.z);			 
+						  + dL_dCC * (cam_pos_local.z * rscale_4_sign.z);	 
 			// from normal regularization loss
 			dL_dscale_221.x += dL_point_normal_unnormalized.x * (-2 * rscale_4_sign.x * p.x);
 			dL_dscale_221.y += dL_point_normal_unnormalized.y * (-2 * rscale_4_sign.y * p.y);
@@ -859,8 +818,7 @@ renderCUDA(
 #endif
 			float3 dL_dscale = {dL_dscale_221.x * 2 * scale_j.x, dL_dscale_221.y * 2 * scale_j.y, 0.0f};
 			if (!stop_z_gradient)
-				dL_dscale.z += dL_dscale_221.z;
-			// printf("dL_dscale of pixel %d,%d is :%.12f,%.12f,%.12f\n",pix.x, pix.y, dL_dscale.x, dL_dscale.y, dL_dscale.z);			 
+				dL_dscale.z += dL_dscale_221.z;		 
 
 			float dL_dview2gaussian_j[16] = {
 				 dL_drg.x * ray_point.x, dL_drg.y * ray_point.x, dL_drg.z * ray_point.x, 0,

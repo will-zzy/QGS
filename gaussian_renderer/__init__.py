@@ -121,10 +121,10 @@ def render(viewpoint_camera,
         rotations = rotations,
         view2gaussian_precomp=view2gaussian_precomp)
     
-    # bbox_occupied_pixels = (aabb[:, 2:3] - aabb[:, 0:1]) * (aabb[:, 3:4] - aabb[:, 1:2])
-    # occupancy_rate = (n_touched.view(-1,1) / (bbox_occupied_pixels + 1)).view(-1)
-    # visibility_filter = (radii > 0) & (occupancy_rate > opt.occupancy_rate) if pipe.occlusion_awared_denom else (radii > 0)
-    visibility_filter = radii > 0
+    bbox_occupied_pixels = (aabb[:, 2:3] - aabb[:, 0:1]) * (aabb[:, 3:4] - aabb[:, 1:2])
+    occupancy_rate = (n_touched.view(-1,1) / (bbox_occupied_pixels + 1)).view(-1)
+    visibility_filter = (radii > 0) & (occupancy_rate > opt.occupancy_rate) if pipe.occlusion_awared_denom else (radii > 0)
+    # visibility_filter = radii > 0
     rets = {
         "render_all": rendered_image,
         "render": rendered_image[:3, :, :],
@@ -139,7 +139,7 @@ def render(viewpoint_camera,
     render_dist = torch.nan_to_num(render_dist)
     
     render_normal = rendered_image[3:6, ...] # normal in the view space
-    # render_normal = (render_normal.permute(1,2,0) @ (viewpoint_camera.world_view_transform[:3,:3].T)).permute(2,0,1) # 世界坐标系
+    # render_normal = (render_normal.permute(1,2,0) @ (viewpoint_camera.world_view_transform[:3,:3].T)).permute(2,0,1) # world space normal
     
     render_depth = rendered_image[6:7, ...]
     render_depth = torch.nan_to_num(render_depth, 0, 0)
@@ -157,12 +157,13 @@ def render(viewpoint_camera,
     render_curvature_dist = rendered_image[12:13]
     render_curvature_dist = torch.nan_to_num(render_curvature_dist, 0, 0)
     
-    surf_normal, surf_point = depth_to_normal(viewpoint_camera, surf_depth) # (W,H,3)
+    surf_normal, surf_point = depth_to_normal(viewpoint_camera, surf_depth) # (W, H, 3)
     surf_distance = torch.nan_to_num(torch.sum(surf_normal * surf_point, dim=-1), 0, 0) # <= 0
     surf_normal = surf_normal.permute(2,0,1)
     surf_point = surf_point.permute(2,0,1)
-    alpha_mask = viewpoint_camera.get_mask if viewpoint_camera.get_mask is not None else torch.ones_like(render_alpha)
-    surf_normal = surf_normal * (render_alpha).detach() * alpha_mask
+    
+    alpha_map = viewpoint_camera.get_mask.to(surf_point.device)
+    surf_normal = surf_normal * (alpha_map).detach()
     s3_s1s2 = rendered_image[13:14]
     rets.update({
             'render_alpha': render_alpha,

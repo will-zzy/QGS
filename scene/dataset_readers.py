@@ -196,7 +196,7 @@ def readColmapSceneInfo(path, images_dir, dataset):
                            ply_path=ply_path)
     return scene_info
 
-def readCamerasFromTransforms(path, transformsfile, white_background, dataset, extension=".png"):
+def readCamerasFromTransforms(path, transformsfile, white_background, extension=".png"):
     cam_infos = []
 
     with open(os.path.join(path, transformsfile)) as json_file:
@@ -232,22 +232,18 @@ def readCamerasFromTransforms(path, transformsfile, white_background, dataset, e
             fovy = focal2fov(fov2focal(fovx, image.size[0]), image.size[1])
             FovY = fovy 
             FovX = fovx
-            width = image.size[0]
-            height = image.size[1]
-            focal = fov2focal(fovx, image.size[0])
-            params = np.array([focal, focal, width / 2, height / 2])
-            cam_infos.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, downsample=dataset.downsample,
-                              image_path=image_path, image_name=image_name, 
-                              width=width, height=height, cam_intr = params, use_alpha = dataset.use_alpha,image_type=dataset.type))
+
+            cam_infos.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
+                            image_path=image_path, image_name=image_name, width=image.size[0], height=image.size[1]))
             
     return cam_infos
 
-def readNerfSyntheticInfo(path, white_background, eval, dataset, extension=".png"):
+def readNerfSyntheticInfo(path, white_background, eval, extension=".png"):
     print("Reading Training Transforms")
-    train_cam_infos = readCamerasFromTransforms(path, "transforms_train.json", white_background, dataset, extension)
+    train_cam_infos = readCamerasFromTransforms(path, "transforms_train.json", white_background, extension)
     print("Reading Test Transforms")
-    # test_cam_infos = readCamerasFromTransforms(path, "transforms_test.json", white_background, extension)
-    test_cam_infos = []
+    test_cam_infos = readCamerasFromTransforms(path, "transforms_test.json", white_background, extension)
+    
     if not eval:
         train_cam_infos.extend(test_cam_infos)
         test_cam_infos = []

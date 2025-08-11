@@ -30,8 +30,6 @@ def apply_depth_colormap(
 
     depth = (depth - near_plane) / (far_plane - near_plane + 1e-10)
     depth = torch.clip(depth, 0, 1)
-    # depth = torch.nan_to_num(depth, nan=0.0) # TODO(ethan): remove this
-
     colored_image = apply_colormap(depth, cmap=cmap)
 
     if accumulation is not None:
@@ -87,13 +85,17 @@ def get_grayscale_image(img, data_range, cmap):
     else:
         img = img.clip(data_range[0], data_range[1])
         img = (img - data_range[0]) / (data_range[1] - data_range[0])
-    assert cmap in [None, 'jet', 'magma']
+    assert cmap in [None, 'jet', 'magma', 'rainbow']
     if cmap == None:
         img = (img * 255.).astype(np.uint8)
         img = np.repeat(img[...,None], 3, axis=2)
     elif cmap == 'jet':
         img = (img * 255.).astype(np.uint8)
+        img = 255 - img
         img = cv2.applyColorMap(img, cv2.COLORMAP_JET)
+    elif cmap == 'rainbow':
+        img = (img * 255.).astype(np.uint8)
+        img = cv2.applyColorMap(img, cv2.COLORMAP_RAINBOW)
     elif cmap == 'magma':
         img = 1. - img
         base = cm.get_cmap('magma')

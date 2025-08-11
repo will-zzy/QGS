@@ -130,16 +130,16 @@ class GaussianExtractor(object):
             rgb = render_pkg['render']
             alpha = render_pkg['render_alpha']
             normal = torch.nn.functional.normalize(render_pkg['render_normal'], dim=0)
-            depth = render_pkg['surf_depth']
+            depth = render_pkg['surf_depth'].squeeze()
+            mask = viewpoint_cam.get_mask
+            depth[mask.squeeze() < 0.5] = 0
             depth_normal = render_pkg['surf_normal']
             render_curvature = render_pkg['render_curvature']
             render_curvature_log = torch.log(render_curvature)
-            
             depth_normal = depth_normal * 0.5 + 0.5
             normal = normal * 0.5 + 0.5
-            
             self.rgbmaps.append(rgb.cpu())
-            self.depthmaps.append(depth)
+            self.depthmaps.append(depth.cpu())
             self.depth_normals.append(depth_normal.cpu().permute(1,2,0))
             self.normals.append(normal.cpu().permute(1,2,0))
             self.curvature_log.append(render_curvature_log.cpu().permute(1,2,0))
@@ -202,7 +202,7 @@ class GaussianExtractor(object):
             # make open3d rgbd
             rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(
                 o3d.geometry.Image(np.asarray(rgb.permute(1,2,0).cpu().numpy() * 255, order="C", dtype=np.uint8)),
-                o3d.geometry.Image(np.asarray(depth.permute(1,2,0).cpu().numpy(), order="C")),
+                o3d.geometry.Image(np.asarray(depth.squeeze().cpu().numpy(), order="C")),
                 depth_trunc = depth_trunc, convert_rgb_to_intensity=False,
                 depth_scale = 1.0
             )

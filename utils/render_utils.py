@@ -105,18 +105,6 @@ def transform_poses_pca(poses: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         transform = np.diag(np.array([1, -1, -1, 1])) @ transform
 
     return poses_recentered, transform
-    # points = np.random.rand(3,100)
-    # points_h = np.concatenate((points,np.ones_like(points[:1])), axis=0)
-    # (poses_recentered @ points_h)[0]
-    # (transform @ pad_poses(poses) @ points_h)[0,:3]
-    # import pdb; pdb.set_trace()
-
-    # # Just make sure it's it in the [-1, 1]^3 cube
-    # scale_factor = 1. / np.max(np.abs(poses_recentered[:, :3, 3]))
-    # poses_recentered[:, :3, 3] *= scale_factor
-    # transform = np.diag(np.array([scale_factor] * 3 + [1])) @ transform
-
-    # return poses_recentered, transform
 
 def generate_ellipse_path(poses: np.ndarray,
                                                     n_frames: int = 120,
@@ -151,14 +139,6 @@ def generate_ellipse_path(poses: np.ndarray,
     theta = np.linspace(0, 2. * np.pi, n_frames + 1, endpoint=True)
     positions = get_positions(theta)
 
-    #if const_speed:
-
-    # # Resample theta angles so that the velocity is closer to constant.
-    # lengths = np.linalg.norm(positions[1:] - positions[:-1], axis=-1)
-    # theta = stepfun.sample(None, theta, np.log(lengths), n_frames + 1)
-    # positions = get_positions(theta)
-
-    # Throw away duplicated last position.
     positions = positions[:-1]
 
     # Set path's up vector to axis closest to average of input pose up vectors.

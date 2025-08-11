@@ -41,10 +41,7 @@ if __name__ == "__main__":
     parser.add_argument('--conf_path',default='./config/base.yaml', type=str, help="path to cfg")
     args, extras = parser.parse_known_args()
     config = OmegaConf.load(args.conf_path)
-    if args.model_path is not None:
-        model_path = args.model_path
-    else:
-        model_path = config.load_model_path
+    model_path = config.load_model_path
     config = load_config(f"{model_path}/config.yaml", cli_args=extras)
     print("Rendering " + config.model_path)
 
@@ -58,8 +55,8 @@ if __name__ == "__main__":
     test_dir = os.path.join(config.model_path, 'test', "ours_{}".format(scene.loaded_iter))
     gaussExtractor = GaussianExtractor(gaussians, render, config.pipeline, config.optimizer, bg_color=bg_color)    
     
-    # if not config.skip_train:
-    if True:
+    if not config.skip_train:
+    # if True:
         print("export training images ...")
         os.makedirs(train_dir, exist_ok=True)
         gaussExtractor.reconstruction(scene.getTrainCameras())
@@ -112,4 +109,4 @@ if __name__ == "__main__":
         # mesh_post = post_process_mesh(mesh, cluster_to_keep=config.pipeline.num_cluster)
         mesh_post = post_process_mesh(mesh, cluster_to_keep=10)
         o3d.io.write_triangle_mesh(os.path.join(train_dir, name.replace('.ply', '_post.ply')), mesh_post)
-        print("mesh post processed saved at {}".format(os.path.join(train_dir, name.replace('.ply', f'_post{gaussExtractor.gaussians.get_xyz.shape[0]}.ply'))))
+        print("mesh post processed saved at {}".format(os.path.join(train_dir, name.replace('.ply', '_post.ply'))))

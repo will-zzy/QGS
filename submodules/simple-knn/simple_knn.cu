@@ -86,7 +86,6 @@ struct MinMax
 		auto idx_point = indices[idx];
 		if (indices[idx] & offset)
 			idx_point = indices[idx] - offset;
-		// printf("%u\n", (uint32_t)idx_point);
 		me.minn = points[idx_point];
 		me.maxx = points[idx_point];
 	}
@@ -98,13 +97,13 @@ struct MinMax
  
 	__shared__ MinMax redResult[BOX_SIZE];
  
-	for (int off = BOX_SIZE / 2; off >= 1; off /= 2) // 分治
+	for (int off = BOX_SIZE / 2; off >= 1; off /= 2)
 	{
 		if (threadIdx.x < 2 * off)
 			redResult[threadIdx.x] = me;
 		__syncthreads();
  
-		if (threadIdx.x < off) // 线程同步后，线程比较并更新最小和最大值
+		if (threadIdx.x < off)
 		{
 			MinMax other = redResult[threadIdx.x + off];
 			me.minn.x = min(me.minn.x, other.minn.x);
@@ -253,7 +252,6 @@ __global__ void SelfKnn(uint32_t P, float3* points, uint32_t* indices, MinMax* b
 	int idx = cg::this_grid().thread_rank();
 	if (idx >= P)
 		return;
-	// printf("hhh1\n");
 	float3 point = points[indices[idx]];
  
 	float best[K_MAX];
@@ -287,13 +285,10 @@ __global__ void SelfKnn(uint32_t P, float3* points, uint32_t* indices, MinMax* b
 			updateKBestIndices<K_MAX>(point, points[indices[i]], indices[i], best, knn_indice);
 		}
 	}
-	// printf("hhh\n");
 	dists[indices[idx]] = 0.0f;
 	for(int i = 0; i < K_MAX; i++){
 		dists[indices[idx]] += best[i];
 		knn_indices[indices[idx] * K_MAX + i] = (int)knn_indice[i];
-		// knn_indices[indices[idx] * K_MAX + i] = 1;
-		// printf("%d\n",(int)knn_indice[i]);
  
 	}
  
@@ -306,13 +301,10 @@ __global__ void CrossKnn(uint32_t P1, uint32_t P2, uint32_t P, float3* points_al
 	int idx = cg::this_grid().thread_rank();
 	if (idx >= P)
 		return;
-	// printf("hhhhh");
 	uint32_t offset = 2 << 30;
 	if (!(indices[idx] & offset)) // if this point is not in A, skip.
 		return;
-	// printf("hhh\n");
 	uint32_t idx_A = indices[idx] - offset;
-	// printf("idx_A:%u",idx_A);
 	float3 point = points_all[idx_A]; // point in A.
 	float best[K_MAX];
 	for(int i = 0; i < K_MAX; i++)
@@ -405,14 +397,13 @@ void SimpleKNN::knn_with_indices(int P, float3* points, float* meanDists, int* k
 
 
 void SimpleKNN::knn_points(int P1, int P2, float3* points_all, int* knn_indices, float* dists)
-{ // 输入两个点云A，B，输出A中每个点在B中的knn子集，不包含A中的点
+{
 	float3* result;
 	cudaMalloc(&result, sizeof(float3));
 	size_t temp_storage_bytes;
 
 	float3 init = { 0, 0, 0 }, minn, maxx;
 	uint32_t P = P1 + P2;
-	// printf("%u\n",P);
     uint32_t flag_value = 1 << 31; // 2^30, to distinct A and B.
 
 	// P_1
@@ -428,12 +419,10 @@ void SimpleKNN::knn_points(int P1, int P2, float3* points_all, int* knn_indices,
 	thrust::device_vector<uint32_t> morton_sorted(P);
 	coord2Morton << <(P + 255) / 256, 256 >> > (P, points_all, minn, maxx, morton.data().get());
 
-	// P_2 两个点云不能一起做基数排序，否则会混淆，或者可以做，但需要做flag，例如把uint32_t第32位令为1，表示A中的点 (uint32_t)2 << 30;
-	// printf("morton\n");
+	
     thrust::device_vector<uint32_t> indices_1(P1); 
     thrust::device_vector<uint32_t> indices_2(P2); 
 
-    // 使用 thrust::sequence 填充 indices_1，起始值为 2^31，结束值为 2^31 + P1
     thrust::sequence(indices_1.begin(), indices_1.end(), flag_value + P2);
     thrust::sequence(indices_2.begin(), indices_2.end());
 
@@ -447,11 +436,11 @@ void SimpleKNN::knn_points(int P1, int P2, float3* points_all, int* knn_indices,
 	cub::DeviceRadixSort::SortPairs(nullptr, temp_storage_bytes, morton.data().get(), morton_sorted.data().get(), indices.data().get(), indices_sorted.data().get(), P);
 	temp_storage.resize(temp_storage_bytes);
 	cub::DeviceRadixSort::SortPairs(temp_storage.data().get(), temp_storage_bytes, morton.data().get(), morton_sorted.data().get(), indices.data().get(), indices_sorted.data().get(), P);
-	// printf("sort\n");
+	
 	uint32_t num_boxes = (P + BOX_SIZE - 1) / BOX_SIZE; // 512
 	thrust::device_vector<MinMax> boxes(num_boxes);
 	boxMinMax << <num_boxes, BOX_SIZE >> > (P, points_all, indices_sorted.data().get(), boxes.data().get());
-	// printf("box\n");
+	
 	CrossKnn << <num_boxes, BOX_SIZE >> > (P1, P2, P, points_all, indices_sorted.data().get(), boxes.data().get(), dists, knn_indices);
 
 	cudaFree(result);

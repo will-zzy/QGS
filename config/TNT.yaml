@@ -1,6 +1,5 @@
 defaults:
   - ./base.yaml
-
 skip_train: True
 skip_test: True
 skip_mesh: False
@@ -10,18 +9,17 @@ render_path: False
 # case_name: Truck
 # case_name: Caterpillar
 case_name: Ignatius
+# case_name: Ignatius
 # case_name: Meetingroom
-root_dir: /data1/zzy/public_data/TNT/TNT_GOF/TrainingSet/${case_name}
-
+root_dir: /home/zzy_group/data/public_data/TNT_GOF/TrainingSet/${case_name}
 GT_path:
 pipeline:
   num_cluster: 1
-  depth_ratio: 0.85
+  depth_ratio: 0.1
   mesh_res: 1024
   voxel_size: 0.004
   sdf_trunc: 0.016
   depth_trunc: 3.5
-
   # Meeting room
   # num_cluster: 1
   # depth_ratio: 1.0
@@ -35,31 +33,24 @@ dataset:
   downsample: 0.5
   type: all
   ncc_scale: ${dataset.downsample}
-
 optimizer:
   percent_dense: 0.0005
-  densify_grad_threshold: 0.4
+  densify_grad_threshold: 0.3
   multi_view_weight_from_iter: 7000
-  multi_view_ncc_weight: 0.15 # 0.15
+  multi_view_ncc_weight: 0.5 # 0.15
   multi_view_geo_weight: 0.03
   curvature_clamp_threshold: -5.0
-  lambda_dist: 500.0
+  lambda_dist: 1000.0
   lambda_normal: 0.05
-  single_view_weight: 0.05
+model_path: >
+  ${root_dir}/exp/DepthRatio=${pipeline.depth_ratio}_ DensifyGrad=${optimizer.densify_grad_threshold}_ CurvClamp=${optimizer.curvature_clamp_threshold}_ Dist=${optimizer.lambda_dist}_ lambda_normal=${optimizer.lambda_normal}_ multi_view_ncc_weight=${optimizer.multi_view_ncc_weight}_ multi_view_geo_weight=${optimizer.multi_view_geo_weight}_ Train_Realease_ReTest_w_curvature
 
-model_path: > 
-  ${root_dir}/exp/DepthRatio=${pipeline.depth_ratio}_
-  DensifyGrad=${optimizer.densify_grad_threshold}_
-  CurvClamp=${optimizer.curvature_clamp_threshold}_
-  Dist=${optimizer.lambda_dist}_
-  Percendent=${optimizer.percent_dense}
 # path to pre-trained model
 # load_model_path: ${root_dir}/exp/DepthRatio=1.0_DensifyGrad=0.2_CurvClamp=-5.0_Dist=500.0_Percendent=0.0001
 load_model_path: ${model_path}
-
 # eval mesh
 # dataset_GT_path: the path to directory containing xxx_trans.txt, xxx.ply, xxx.json, xxx_COLMAP_SfM.log
-dataset_GT_path: /data1/zzy/public_data/TNT/TNT_GOF/TrainingSet/GT/${case_name}
+dataset_GT_path: /home/zzy_group/data/public_data/TNT_GOF/GT/${case_name}
 traj_path: ${root_dir}/${case_name}_COLMAP_SfM.log
 # mesh_ply_path: the path to directory containing mesh to evaluate
 mesh_ply_path: ${load_model_path}/train/ours_30000/fuse_post.ply

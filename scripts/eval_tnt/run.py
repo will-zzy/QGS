@@ -40,7 +40,7 @@ import open3d as o3d
 import os
 import argparse
 from omegaconf import OmegaConf
-# import torch
+import torch
 
 from config import scenes_tau_dict
 from registration import (
@@ -221,32 +221,7 @@ def run_evaluation(dataset_dir, traj_path, ply_path, out_dir, view_crop):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--conf_path',default='./config/base.yaml')
-    # parser.add_argument(
-    #     "--dataset-GT-dir",
-    #     type=str,
-    #     required=True,
-    #     help="path to a dataset/scene directory containing X.json, X.ply, ...",
-    # )
-    # parser.add_argument(
-    #     "--traj-path",
-    #     type=str,
-    #     required=True,
-    #     help=
-    #     "path to trajectory file. See `convert_to_logfile.py` to create this file.",
-    # )
-    # parser.add_argument(
-    #     "--ply-path",
-    #     type=str,
-    #     required=True,
-    #     help="path to reconstruction ply file",
-    # )
-    # parser.add_argument(
-    #     "--out-dir",
-    #     type=str,
-    #     default="",
-    #     help=
-    #     "output directory, default: an evaluation directory is created in the directory of the ply file",
-    # )
+    
     parser.add_argument(
         "--view-crop",
         type=int,
@@ -255,6 +230,8 @@ if __name__ == "__main__":
     )
     args, extras = parser.parse_known_args()
     config = load_config(args.conf_path, cli_args=extras)
+    model_path = config.load_model_path
+    config = load_config(f"{model_path}/config.yaml", cli_args=extras)
 
     args.view_crop = False #  (args.view_crop > 0)
     if config.eval_output_path.strip() == "":

@@ -37,9 +37,6 @@ class GaussianModel:
             sign_quantity = self._scaling[selected_pts_mask, 3:].repeat(N,1)
             scale_quantity_exp = torch.exp(self._scaling[selected_pts_mask, :3]).repeat(N,1) / (0.8*N)
             scale_quantity_log = torch.log(scale_quantity_exp)
-            # factor = torch.tanh(scaling_sign[0])
-            # scaling = torch.log(torch.abs(scale) / factor)
-            # scaling_sign = scaling_sign * torch.sign(scale)
             return torch.cat([scale_quantity_log, sign_quantity], dim=1)
         
         
@@ -50,29 +47,7 @@ class GaussianModel:
             scaling_sign = scaling_sign * torch.sign(scale)
             return torch.cat([scaling, scaling_sign], dim=1)
         
-            # scaling_sign = torch.sign(scale)
-            # scaling = torch.log(torch.abs(scale))
-            # return torch.cat([scaling, scaling_sign], dim=1)
             
-        ### These activation functions for scale all perform poorly.
-        # def scaling_activation(x, scale, factor):
-        #     return torch.tanh(factor * x) * scale
-        # def scaling_inverse_activation(x, scale, factor):
-        #     return torch.atanh(torch.clamp(x,-scale+1e-5,scale-1e-5) / scale) / factor
-        # def scaling_activation(x, factor):
-        #     scale = torch.zeros_like(x)
-        #     positive_mask = x >= 0
-        #     scale[positive_mask] = torch.exp(factor * x[positive_mask]) - 1
-        #     scale[~positive_mask] = -torch.exp(-factor * x[~positive_mask]) + 1
-        #     return scale
-        # def scaling_inverse_activation(scale, factor):
-        #     x = torch.zeros_like(scale)
-        #     positive_mask = scale >= 0
-        #     x[positive_mask] = torch.log(scale[positive_mask] + 1) / factor
-        #     x[~positive_mask] = -torch.log(-scale[~positive_mask] + 1) / factor
-        #     return x
-        # self.scaling_activation = functools.partial(scaling_activation, factor=0.01)
-        # self.scaling_inverse_activation = functools.partial(scaling_inverse_activation, factor=0.01)
         
         self.scaling_activation = scaling_activation
         self.scaling_inverse_activation = scaling_inverse_activation
@@ -92,7 +67,6 @@ class GaussianModel:
     def __init__(self, config):
         self.active_sh_degree = 0
         self.max_sh_degree = config.sh_degree  
-        # self.sigma = config.sigma
         self.sigma = 3.0
         self._xyz = torch.empty(0)
         self._features_dc = torch.empty(0)
@@ -216,7 +190,6 @@ class GaussianModel:
     def oneupSHdegree(self):
         if self.active_sh_degree < self.max_sh_degree:
             self.active_sh_degree += 1
-
 
     def create_from_pcd(self, pcd : BasicPointCloud, spatial_lr_scale : float):
         self.spatial_lr_scale = spatial_lr_scale
@@ -518,15 +491,15 @@ class GaussianModel:
         mask = (pts_projections[:, 0] > 0) & (pts_projections[:, 0] < W) &\
                (pts_projections[:, 1] > 0) & (pts_projections[:, 1] < H) & (points_in_camera_space[:,2] > 0.1)
 
-        pts_projections[..., 0] /= ((W - 1) / 2)
-        pts_projections[..., 1] /= ((H - 1) / 2)
+        pts_projections[..., 0] /= (W / 2)
+        pts_projections[..., 1] /= (H / 2)
         pts_projections -= 1
         pts_projections = pts_projections.view(1, -1, 1, 2)
         map_z = torch.nn.functional.grid_sample(input=depth_view,
                                                 grid=pts_projections,
                                                 mode='bilinear',
                                                 padding_mode='border',
-                                                align_corners=True
+                                                align_corners=False
                                                 )[0, :, :, 0]
         return map_z, mask
     
@@ -538,6 +511,6 @@ class GaussianModel:
         pts = (rays_d * depth_view[..., None]).reshape(-1,3)
         R = torch.tensor(fov_camera.R).float().cuda()
         T = torch.tensor(fov_camera.T).float().cuda()
-        pts = (pts-T)@R.transpose(-1,-2) # 将相机坐标系下的点变换到世界坐标系
+        pts = (pts-T)@R.transpose(-1,-2)
         return pts
         
