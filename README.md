@@ -139,14 +139,11 @@ This project is built upon [2DGS](https://github.com/hbb1/2d-gaussian-splatting)
 
 If you find our code or paper helps, please consider citing:
 ```bibtex
-@misc{zhang2025quadraticgaussiansplattinghigh,
-      title={Quadratic Gaussian Splatting: High Quality Surface Reconstruction with Second-order Geometric Primitives}, 
-      author={Ziyu Zhang and Binbin Huang and Hanqing Jiang and Liyang Zhou and Xiaojun Xiang and Shunhan Shen},
-      year={2025},
-      eprint={2411.16392},
-      archivePrefix={arXiv},
-      primaryClass={cs.CV},
-      url={https://arxiv.org/abs/2411.16392}, 
+@inproceedings{zhang2025quadraticgaussiansplattinghigh,
+  author    = {Ziyu Zhang and Binbin Huang and Hanqing Jiang and Liyang Zhou and Xiaojun Xiang and Shunhan Shen},
+  title     = {{Quadratic Gaussian Splatting: High Quality Surface Reconstruction with Second-order Geometric Primitives}},
+  booktitle = {IEEE International Conference on Computer Vision (ICCV)},
+  year      = {2025},
 }
 ```
 
